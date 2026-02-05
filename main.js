@@ -1,5 +1,5 @@
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
+let canvas = null;
+let ctx = null;
 
 const hudTurn = document.getElementById("turn");
 const hudPower = document.getElementById("power");
@@ -26,7 +26,6 @@ const state = {
   charging: false,
   charge: 0,
   chargeDir: 1,
-  lastTime: 0,
   gameOver: false,
   winner: null,
   aiTimer: 0,
@@ -156,6 +155,44 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+class GameScene extends Phaser.Scene {
+  constructor() {
+    super("game");
+  }
+
+  create() {
+    canvas = this.sys.game.canvas;
+    ctx = this.sys.game.context || canvas.getContext("2d");
+    resize(this.scale.width, this.scale.height);
+    this.scale.on("resize", (gameSize) => {
+      resize(gameSize.width, gameSize.height);
+    });
+    this.sys.game.events.on("postrender", () => {
+      render();
+    });
+    bindInput(this);
+  }
+
+  update(_time, delta) {
+    step(delta / 1000);
+  }
+}
+
+const phaserConfig = {
+  type: Phaser.CANVAS,
+  canvas: document.getElementById("game"),
+  width: window.innerWidth,
+  height: window.innerHeight,
+  backgroundColor: "#000000",
+  scale: {
+    mode: Phaser.Scale.RESIZE,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [GameScene],
+};
+
+new Phaser.Game(phaserConfig);
+
 function rand(min, max) {
   return Math.random() * (max - min) + min;
 }
@@ -259,15 +296,16 @@ function resetGame() {
   }
 }
 
-function resize() {
-  state.dpr = window.devicePixelRatio || 1;
-  state.width = window.innerWidth;
-  state.height = window.innerHeight;
-  canvas.width = state.width * state.dpr;
-  canvas.height = state.height * state.dpr;
+function resize(width, height) {
+  if (!canvas || !ctx) return;
+  state.dpr = 1;
+  state.width = Math.floor(width);
+  state.height = Math.floor(height);
+  canvas.width = state.width;
+  canvas.height = state.height;
   canvas.style.width = `${state.width}px`;
   canvas.style.height = `${state.height}px`;
-  ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   buildWeaponList();
   resetGame();
 }
@@ -884,6 +922,8 @@ function drawExplosions() {
   });
 }
 function render() {
+  if (!ctx) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   drawBackground();
   drawTerrain();
   drawTrajectory();
@@ -917,28 +957,22 @@ function updateCharge(dt) {
   updateHud();
 }
 
-function update(time) {
-  const now = time / 1000;
-  const dt = Math.min(0.033, now - state.lastTime || 0);
-  state.lastTime = now;
-
+function step(dt) {
+  const safeDt = Math.min(0.033, dt);
   if (!state.gameOver) {
-    updateAI(dt);
+    updateAI(safeDt);
     state.worms.forEach((worm, index) => {
       const isActive = index === state.currentIndex && worm.alive;
-      updateWorm(worm, dt, isActive);
+      updateWorm(worm, safeDt, isActive);
     });
-    updateProjectiles(dt);
-    updateExplosions(dt);
-    updateCharge(dt);
+    updateProjectiles(safeDt);
+    updateExplosions(safeDt);
+    updateCharge(safeDt);
   }
-
-  render();
-  requestAnimationFrame(update);
 }
 
-window.addEventListener("resize", resize);
-window.addEventListener("keydown", (event) => {
+function bindInput(phaserScene) {
+  phaserScene.input.keyboard.on("keydown", (event) => {
   if (event.code === "Space") {
     if (!state.charging && state.projectiles.length === 0 && !state.gameOver) {
       state.charging = true;
@@ -976,9 +1010,9 @@ window.addEventListener("keydown", (event) => {
   }
 
   keys.add(event.key);
-});
+  });
 
-window.addEventListener("keyup", (event) => {
+  phaserScene.input.keyboard.on("keyup", (event) => {
   if (event.code === "Space") {
     if (state.charging && state.projectiles.length === 0 && !state.gameOver) {
       const worm = state.worms[state.currentIndex];
@@ -993,7 +1027,5 @@ window.addEventListener("keyup", (event) => {
   }
 
   keys.delete(event.key);
-});
-
-resize();
-requestAnimationFrame(update);
+  });
+}
