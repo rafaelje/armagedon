@@ -1,0 +1,999 @@
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const hudTurn = document.getElementById("turn");
+const hudPower = document.getElementById("power");
+const hudWeapon = document.getElementById("weapon");
+const hudWind = document.getElementById("wind");
+const hudBadge = document.getElementById("turnbadge");
+const powerBar = document.getElementById("powerbar");
+const powerFill = document.getElementById("powerfill");
+const weaponList = document.getElementById("weaponlist");
+const commentaryEl = document.getElementById("commentary");
+const commentaryText = document.getElementById("commentary-text");
+
+const keys = new Set();
+
+const state = {
+  dpr: 1,
+  width: 0,
+  height: 0,
+  terrain: [],
+  worms: [],
+  currentIndex: 0,
+  weaponIndex: 0,
+  projectiles: [],
+  charging: false,
+  charge: 0,
+  chargeDir: 1,
+  lastTime: 0,
+  gameOver: false,
+  winner: null,
+  aiTimer: 0,
+  aiPlan: null,
+  explosions: [],
+  wind: 0,
+};
+
+const config = {
+  gravity: 900,
+  moveSpeed: 90,
+  angleSpeed: 90,
+  wormRadius: 12,
+  chargeRate: 0.9,
+};
+
+const weapons = [
+  {
+    id: "bazooka",
+    name: "Bazooka",
+    minSpeed: 400,
+    maxSpeed: 1200,
+    explosionRadius: 55,
+    maxDamage: 60,
+    bounciness: 0,
+    fuse: 0,
+    gravityScale: 0.9,
+  },
+  {
+    id: "grenade",
+    name: "Granada",
+    minSpeed: 400,
+    maxSpeed: 1200,
+    explosionRadius: 70,
+    maxDamage: 75,
+    bounciness: 0.45,
+    fuse: 6.6,
+    gravityScale: 0.9,
+  },
+  {
+    id: "mortar",
+    name: "Mortero",
+    minSpeed: 400,
+    maxSpeed: 1200,
+    explosionRadius: 85,
+    maxDamage: 90,
+    bounciness: 0,
+    fuse: 0,
+    gravityScale: 0.9,
+  },
+  {
+    id: "sniper",
+    name: "Sniper",
+    minSpeed: 400,
+    maxSpeed: 1200,
+    explosionRadius: 26,
+    maxDamage: 85,
+    bounciness: 0,
+    fuse: 0,
+    gravityScale: 0.9,
+    projectileRadius: 3,
+  },
+  {
+    id: "pistol",
+    name: "Pistola x3",
+    minSpeed: 400,
+    maxSpeed: 1200,
+    explosionRadius: 18,
+    maxDamage: 22,
+    bounciness: 0,
+    fuse: 0,
+    gravityScale: 0.9,
+    projectileRadius: 3,
+    burst: 3,
+    burstSpread: 6,
+    burstSpeedJitter: 0.04,
+  },
+];
+
+const aiConfig = {
+  enabled: true,
+  team: "Azul",
+  thinkDelayMin: 0.5,
+  thinkDelayMax: 1.2,
+  angleStep: 5,
+  powerMin: 0.35,
+  powerStep: 0.07,
+  powerMax: 1,
+  simStep: 0.02,
+  simMaxTime: 3.8,
+};
+
+const commentary = {
+  turn: [
+    "Turno de {name}. Que no se le vaya la mano.",
+    "¡{name} al ruedo!",
+    "{name} toma el control. Respiren.",
+    "El público pide precisión, {name}.",
+  ],
+  fire: [
+    "¡Vuela, proyectil, vuela!",
+    "Eso salió con más fe que puntería.",
+    "¡Un disparo para los libros... de accidentes!",
+    "¡Cuidado, que va con cariño!",
+    "¡Lanzamiento digno de circo!",
+  ],
+  boom: [
+    "¡Eso fue un masaje explosivo!",
+    "¡Tierra abierta, orgullo cerrado!",
+    "¡El suelo también sufre!",
+    "¡Craterazo nivel experto!",
+  ],
+  hit: [
+    "¡Directo al ego!",
+    "¡Ese sí dolió!",
+    "¡Golpe limpio, 10 puntos!",
+    "¡Eso deja marca!",
+  ],
+  kill: [
+    "¡Se fue a ver lombrices al cielo!",
+    "¡KO con estilo!",
+    "¡Bye bye, gusano valiente!",
+  ],
+};
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function rand(min, max) {
+  return Math.random() * (max - min) + min;
+}
+
+function terrainHeightAt(x) {
+  const xi = Math.floor(clamp(x, 0, state.width - 1));
+  return state.terrain[xi] ?? state.height;
+}
+
+function buildTerrain() {
+  const width = state.width;
+  const height = state.height;
+  const base = height * 0.68;
+  const amp1 = height * 0.12;
+  const amp2 = height * 0.06;
+  const phase1 = rand(0, Math.PI * 2);
+  const phase2 = rand(0, Math.PI * 2);
+
+  state.terrain = new Array(Math.floor(width) + 1);
+  for (let x = 0; x <= width; x += 1) {
+    const y = base + Math.sin(x * 0.01 + phase1) * amp1 + Math.sin(x * 0.004 + phase2) * amp2;
+    state.terrain[x] = clamp(y, height * 0.45, height * 0.92);
+  }
+
+  const platformY = height * 0.55;
+  flattenRange(width * 0.18, width * 0.32, platformY);
+  flattenRange(width * 0.6, width * 0.78, height * 0.52);
+  flattenRange(width * 0.42, width * 0.5, height * 0.62);
+}
+
+function flattenRange(x0, x1, y) {
+  const start = Math.floor(clamp(x0, 0, state.width));
+  const end = Math.floor(clamp(x1, 0, state.width));
+  for (let x = start; x <= end; x += 1) {
+    state.terrain[x] = y;
+  }
+}
+
+function createWorms() {
+  const left = [state.width * 0.2, state.width * 0.3];
+  const right = [state.width * 0.7, state.width * 0.82];
+  const worms = [];
+
+  left.forEach((x, index) => {
+    worms.push(makeWorm({
+      id: `R${index + 1}`,
+      name: `Rojo ${index + 1}`,
+      team: "Rojo",
+      color: "#ef476f",
+      x,
+    }));
+  });
+
+  right.forEach((x, index) => {
+    worms.push(makeWorm({
+      id: `A${index + 1}`,
+      name: `Azul ${index + 1}`,
+      team: "Azul",
+      color: "#118ab2",
+      x,
+    }));
+  });
+
+  state.worms = worms;
+  state.currentIndex = 0;
+}
+
+function makeWorm({ id, name, team, color, x }) {
+  const y = terrainHeightAt(x) - config.wormRadius;
+  return {
+    id,
+    name,
+    team,
+    color,
+    x,
+    y,
+    vx: 0,
+    vy: 0,
+    angle: team === "Rojo" ? 45 : 135,
+    health: 100,
+    alive: true,
+    onGround: true,
+  };
+}
+
+function resetGame() {
+  state.gameOver = false;
+  state.winner = null;
+  state.projectiles = [];
+  state.charge = 0;
+  state.charging = false;
+  state.weaponIndex = 0;
+  state.aiTimer = 0;
+  state.aiPlan = null;
+  buildTerrain();
+  createWorms();
+  updateHud();
+  const worm = state.worms[state.currentIndex];
+  if (worm) {
+    sayComment("turn", { name: worm.name });
+  }
+}
+
+function resize() {
+  state.dpr = window.devicePixelRatio || 1;
+  state.width = window.innerWidth;
+  state.height = window.innerHeight;
+  canvas.width = state.width * state.dpr;
+  canvas.height = state.height * state.dpr;
+  canvas.style.width = `${state.width}px`;
+  canvas.style.height = `${state.height}px`;
+  ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+  buildWeaponList();
+  resetGame();
+}
+
+function updateHud() {
+  const worm = state.worms[state.currentIndex];
+  if (!worm || state.gameOver) {
+    hudTurn.textContent = state.gameOver ? `Ganador: ${state.winner}` : "—";
+    if (hudBadge) {
+      hudBadge.textContent = state.gameOver ? "FIN" : "—";
+      hudBadge.classList.remove("team-rojo", "team-azul");
+    }
+  } else {
+    hudTurn.textContent = `${worm.name} · HP ${worm.health}`;
+    if (hudBadge) {
+      hudBadge.textContent = worm.team;
+      hudBadge.classList.toggle("team-rojo", worm.team === "Rojo");
+      hudBadge.classList.toggle("team-azul", worm.team === "Azul");
+    }
+  }
+  const weapon = weapons[state.weaponIndex];
+  hudWeapon.textContent = weapon ? weapon.name : "—";
+  if (hudWind) hudWind.textContent = `${state.wind}`;
+  hudPower.textContent = `${Math.round(state.charge * 100)}%`;
+  powerFill.style.width = `${Math.round(state.charge * 100)}%`;
+  powerBar.classList.toggle("charging", state.charging);
+  syncWeaponList();
+}
+
+function buildWeaponList() {
+  if (!weaponList) return;
+  weaponList.innerHTML = "";
+  weapons.forEach((weapon, index) => {
+    const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "weapon-item";
+    button.dataset.index = String(index);
+    const key = document.createElement("span");
+    key.className = "weapon-key";
+    key.textContent = String(index + 1);
+    const name = document.createElement("span");
+    name.className = "weapon-name";
+    name.textContent = weapon.name;
+    button.appendChild(key);
+    button.appendChild(name);
+    button.addEventListener("click", () => setWeapon(index));
+    li.appendChild(button);
+    weaponList.appendChild(li);
+  });
+}
+
+function syncWeaponList() {
+  if (!weaponList) return;
+  const locked = state.projectiles.length > 0 || state.charging || state.gameOver;
+  weaponList.querySelectorAll("button").forEach((button) => {
+    const index = Number(button.dataset.index);
+    const isActive = index === state.weaponIndex;
+    button.classList.toggle("active", isActive);
+    button.disabled = locked;
+  });
+}
+
+function getCurrentWeapon() {
+  return weapons[state.weaponIndex] ?? weapons[0];
+}
+
+function setWeapon(index) {
+  if (state.projectiles.length > 0 || state.charging || state.gameOver) return;
+  const next = (index + weapons.length) % weapons.length;
+  state.weaponIndex = next;
+  updateHud();
+}
+
+function sayComment(type, ctx = {}) {
+  if (!commentaryEl || !commentaryText) return;
+  const list = commentary[type] || commentary.fire;
+  let text = list[Math.floor(Math.random() * list.length)];
+  if (ctx.name) text = text.replaceAll("{name}", ctx.name);
+  if (ctx.weapon) text = text.replaceAll("{weapon}", ctx.weapon);
+  commentaryText.textContent = `"${text}"`;
+  commentaryEl.classList.remove("commentary-pop");
+  void commentaryEl.offsetWidth;
+  commentaryEl.classList.add("commentary-pop");
+}
+
+function updateAI(dt) {
+  if (!aiConfig.enabled || state.gameOver || state.projectiles.length > 0 || state.charging) return;
+  const worm = state.worms[state.currentIndex];
+  if (!worm || !worm.alive || worm.team !== aiConfig.team) return;
+
+  if (!state.aiPlan) {
+    state.aiPlan = planShot(worm);
+    state.aiTimer = rand(aiConfig.thinkDelayMin, aiConfig.thinkDelayMax);
+    updateHud();
+  }
+
+  state.aiTimer -= dt;
+  if (state.aiTimer <= 0 && state.aiPlan) {
+    setWeapon(state.aiPlan.weaponIndex);
+    worm.angle = state.aiPlan.angle;
+    const weapon = getCurrentWeapon();
+    fireProjectile(worm, state.aiPlan.power, weapon);
+    state.aiPlan = null;
+    state.aiTimer = 0;
+    updateHud();
+  }
+}
+
+function planShot(worm) {
+  const targets = state.worms.filter((w) => w.alive && w.team !== worm.team);
+  if (targets.length === 0) {
+    return { angle: worm.team === "Rojo" ? 60 : 120, power: 0.6, weaponIndex: 0 };
+  }
+
+  let best = { score: Infinity, angle: worm.angle, power: 0.6, weaponIndex: 0 };
+  const weaponIndex = 0;
+  const weapon = weapons[weaponIndex];
+  const startX = worm.x;
+  const startY = worm.y;
+  const target = targets.reduce((closest, current) => {
+    const d1 = Math.abs(current.x - worm.x);
+    const d2 = Math.abs(closest.x - worm.x);
+    return d1 < d2 ? current : closest;
+  }, targets[0]);
+
+  const towardRight = target.x >= worm.x;
+  const angleStart = towardRight ? 15 : 100;
+  const angleEnd = towardRight ? 80 : 165;
+
+  for (let angle = angleStart; angle <= angleEnd; angle += aiConfig.angleStep) {
+    for (let power = aiConfig.powerMin; power <= aiConfig.powerMax; power += aiConfig.powerStep) {
+      const score = simulateShot(startX, startY, angle, power, weapon, targets);
+      if (score < best.score) {
+        best = { score, angle, power, weaponIndex };
+      }
+    }
+  }
+
+  return best;
+}
+
+function simulateShot(startX, startY, angle, power, weapon, targets) {
+  const rad = (angle * Math.PI) / 180;
+  const speed = weapon.minSpeed + (weapon.maxSpeed - weapon.minSpeed) * power;
+  let x = startX + Math.cos(rad) * (config.wormRadius + 6);
+  let y = startY - Math.sin(rad) * (config.wormRadius + 6);
+  let vx = Math.cos(rad) * speed;
+  let vy = -Math.sin(rad) * speed;
+  let minDist = Infinity;
+  const gravity = config.gravity * weapon.gravityScale;
+
+  for (let t = 0; t < aiConfig.simMaxTime; t += aiConfig.simStep) {
+    vy += gravity * aiConfig.simStep;
+    x += vx * aiConfig.simStep;
+    y += vy * aiConfig.simStep;
+
+    if (x < -200 || x > state.width + 200 || y > state.height + 200) break;
+
+    for (const target of targets) {
+      const dx = target.x - x;
+      const dy = target.y - y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < minDist) minDist = dist;
+      if (dist <= config.wormRadius + 6) {
+        return dist;
+      }
+    }
+
+    if (y >= terrainHeightAt(x)) break;
+  }
+
+  return minDist;
+}
+
+function nextTurn() {
+  const alive = state.worms.filter((worm) => worm.alive);
+  const teams = new Set(alive.map((worm) => worm.team));
+  if (teams.size <= 1) {
+    state.gameOver = true;
+    state.winner = alive[0]?.team ?? "Nadie";
+    updateHud();
+    return;
+  }
+
+  let idx = state.currentIndex;
+  for (let i = 0; i < state.worms.length; i += 1) {
+    idx = (idx + 1) % state.worms.length;
+    if (state.worms[idx].alive) {
+      state.currentIndex = idx;
+      break;
+    }
+  }
+
+  const worm = state.worms[state.currentIndex];
+  worm.angle = worm.team === "Rojo" ? 45 : 135;
+  state.charge = 0;
+  updateHud();
+  sayComment("turn", { name: worm.name });
+}
+
+function updateWorm(worm, dt, isActive) {
+  if (!worm.alive) return;
+
+  if (isActive && state.projectiles.length === 0) {
+    const left = keys.has("ArrowLeft");
+    const right = keys.has("ArrowRight");
+    const up = keys.has("ArrowUp");
+    const down = keys.has("ArrowDown");
+
+    if (left !== right) {
+      const dir = left ? -1 : 1;
+      worm.x += dir * config.moveSpeed * dt;
+      worm.x = clamp(worm.x, config.wormRadius, state.width - config.wormRadius);
+    }
+
+    if (up !== down) {
+      const dir = up ? 1 : -1;
+      worm.angle += dir * config.angleSpeed * dt;
+      worm.angle = clamp(worm.angle, 15, 165);
+    }
+  }
+
+  if (!worm.onGround || Math.abs(worm.vx) > 1) {
+    worm.x += worm.vx * dt;
+    worm.x = clamp(worm.x, config.wormRadius, state.width - config.wormRadius);
+    worm.vx *= worm.onGround ? 0.8 : 0.99;
+  }
+
+  const ground = terrainHeightAt(worm.x) - config.wormRadius;
+  if (worm.y < ground - 1) {
+    worm.onGround = false;
+  }
+
+  if (!worm.onGround) {
+    worm.vy += config.gravity * dt;
+    worm.y += worm.vy * dt;
+  }
+
+  const groundY = terrainHeightAt(worm.x) - config.wormRadius;
+  if (worm.y >= groundY) {
+    worm.y = groundY;
+    worm.vy = 0;
+    worm.onGround = true;
+  }
+}
+
+function addProjectile(params) {
+  state.projectiles.push(params);
+}
+
+function fireProjectile(worm, power, weapon) {
+  const burst = weapon.burst ?? 1;
+  const spread = weapon.burstSpread ?? 0;
+  const jitter = weapon.burstSpeedJitter ?? 0;
+  const baseSpeed = weapon.minSpeed + (weapon.maxSpeed - weapon.minSpeed) * power;
+  const muzzle = config.wormRadius + 6;
+  const centerAngle = worm.angle;
+
+  sayComment("fire", { weapon: weapon.name });
+
+  for (let i = 0; i < burst; i += 1) {
+    const offset = burst === 1 ? 0 : (i - (burst - 1) / 2) * spread;
+    const rad = ((centerAngle + offset) * Math.PI) / 180;
+    const speed = baseSpeed * (1 + rand(-jitter, jitter));
+    const startX = worm.x + Math.cos(rad) * muzzle;
+    const startY = worm.y - Math.sin(rad) * muzzle;
+
+    addProjectile({
+      x: startX,
+      y: startY,
+      vx: Math.cos(rad) * speed,
+      vy: -Math.sin(rad) * speed,
+      radius: weapon.projectileRadius ?? 4,
+      weaponId: weapon.id,
+      explosionRadius: weapon.explosionRadius,
+      maxDamage: weapon.maxDamage,
+      bounciness: weapon.bounciness,
+      fuse: weapon.fuse,
+      timer: weapon.fuse,
+      gravity: config.gravity * weapon.gravityScale,
+      bounces: 0,
+      alive: true,
+    });
+  }
+}
+
+function updateProjectiles(dt) {
+  if (state.projectiles.length === 0) return;
+  const next = [];
+
+  state.projectiles.forEach((p) => {
+    p.vy += p.gravity * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    if (p.timer > 0) {
+      p.timer -= dt;
+      if (p.timer <= 0) {
+        explode(p.x, p.y, p.explosionRadius, p.maxDamage);
+        return;
+      }
+    }
+
+    if (p.x < -200 || p.x > state.width + 200 || p.y > state.height + 200) {
+      return;
+    }
+
+    if (p.y >= terrainHeightAt(p.x)) {
+      if (p.bounciness > 0 && p.bounces < 3 && p.timer > 0.05) {
+        p.y = terrainHeightAt(p.x) - 2;
+        p.vy = -Math.abs(p.vy) * p.bounciness;
+        p.vx *= 0.8;
+        p.bounces += 1;
+      } else {
+        explode(p.x, p.y, p.explosionRadius, p.maxDamage);
+        return;
+      }
+    }
+
+    next.push(p);
+  });
+
+  state.projectiles = next;
+  if (state.projectiles.length === 0) {
+    nextTurn();
+  }
+}
+
+function explode(x, y, radius, maxDamage) {
+  carveCrater(x, y, radius);
+  spawnExplosion(x, y, radius);
+
+  let gotHit = false;
+  let gotKill = false;
+  state.worms.forEach((worm) => {
+    if (!worm.alive) return;
+    const dx = worm.x - x;
+    const dy = worm.y - y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > radius) return;
+
+    const falloff = 1 - dist / radius;
+    const damage = Math.round(falloff * maxDamage);
+    worm.health -= damage;
+    gotHit = true;
+    if (worm.health <= 0) {
+      worm.alive = false;
+      gotKill = true;
+      return;
+    }
+
+    const knock = 160 * falloff;
+    const angle = Math.atan2(dy, dx);
+    worm.vx += Math.cos(angle) * knock;
+    worm.vy += Math.sin(angle) * knock - 120 * falloff;
+    worm.onGround = false;
+  });
+
+  if (gotKill) {
+    sayComment("kill");
+  } else if (gotHit) {
+    sayComment("hit");
+  } else {
+    sayComment("boom");
+  }
+}
+
+function carveCrater(cx, cy, radius) {
+  const start = Math.floor(clamp(cx - radius, 0, state.width));
+  const end = Math.floor(clamp(cx + radius, 0, state.width));
+  for (let x = start; x <= end; x += 1) {
+    const dx = x - cx;
+    const span = Math.sqrt(Math.max(0, radius * radius - dx * dx));
+    const craterY = cy + span;
+    if (state.terrain[x] < craterY) {
+      state.terrain[x] = craterY;
+    }
+  }
+}
+
+function spawnExplosion(x, y, radius) {
+  const particles = [];
+  const count = 20;
+  for (let i = 0; i < count; i += 1) {
+    const angle = rand(0, Math.PI * 2);
+    const speed = rand(radius * 1.5, radius * 3.2);
+    particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: rand(0.3, 0.6),
+      age: 0,
+      size: rand(2, 4),
+    });
+  }
+
+  state.explosions.push({
+    x,
+    y,
+    radius,
+    life: 0,
+    duration: 0.5,
+    particles,
+  });
+}
+
+function updateExplosions(dt) {
+  if (state.explosions.length === 0) return;
+  state.explosions = state.explosions.filter((boom) => {
+    boom.life += dt;
+    const activeParticles = [];
+    boom.particles.forEach((p) => {
+      p.age += dt;
+      if (p.age >= p.life) return;
+      p.vy += config.gravity * 0.2 * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      activeParticles.push(p);
+    });
+    boom.particles = activeParticles;
+    return boom.life < boom.duration || boom.particles.length > 0;
+  });
+}
+
+function drawBackground() {
+  const grad = ctx.createLinearGradient(0, 0, 0, state.height);
+  grad.addColorStop(0, "#bde0fe");
+  grad.addColorStop(0.6, "#d0f4ff");
+  grad.addColorStop(1, "#fef9ef");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, state.width, state.height);
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.65)";
+  for (let i = 0; i < 5; i += 1) {
+    const x = (state.width * (i + 1)) / 6;
+    const y = state.height * 0.12 + (i % 2) * 30;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 70, 28, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawTerrain() {
+  ctx.fillStyle = "#5d9c59";
+  ctx.beginPath();
+  ctx.moveTo(0, state.height);
+  ctx.lineTo(0, state.terrain[0]);
+  for (let x = 1; x < state.terrain.length; x += 1) {
+    ctx.lineTo(x, state.terrain[x]);
+  }
+  ctx.lineTo(state.width, state.height);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "#4a7c48";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, state.terrain[0]);
+  for (let x = 1; x < state.terrain.length; x += 1) {
+    ctx.lineTo(x, state.terrain[x]);
+  }
+  ctx.stroke();
+}
+
+function drawTrajectory() {
+  if (state.gameOver || state.projectiles.length > 0) return;
+  if (!state.charging || state.charge <= 0) return;
+
+  const worm = state.worms[state.currentIndex];
+  if (!worm || !worm.alive) return;
+  const weapon = getCurrentWeapon();
+  const power = clamp(state.charge, 0, 1);
+
+  const rad = (worm.angle * Math.PI) / 180;
+  const speed = weapon.minSpeed + (weapon.maxSpeed - weapon.minSpeed) * power;
+  const muzzle = config.wormRadius + 6;
+  let x = worm.x + Math.cos(rad) * muzzle;
+  let y = worm.y - Math.sin(rad) * muzzle;
+  let vx = Math.cos(rad) * speed;
+  let vy = -Math.sin(rad) * speed;
+  const gravity = config.gravity * weapon.gravityScale;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(20, 22, 28, 0.85)";
+  ctx.strokeStyle = "rgba(20, 22, 28, 0.6)";
+  ctx.lineWidth = 1;
+
+  let hitX = null;
+  let hitY = null;
+  const step = 0.06;
+  const maxTime = 2.6;
+  for (let t = 0; t < maxTime; t += step) {
+    vy += gravity * step;
+    x += vx * step;
+    y += vy * step;
+
+    if (x < -100 || x > state.width + 100 || y > state.height + 200) break;
+    if (y >= terrainHeightAt(x)) {
+      hitX = x;
+      hitY = terrainHeightAt(x);
+      break;
+    }
+
+    ctx.beginPath();
+    ctx.arc(x, y, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (hitX !== null && hitY !== null) {
+    ctx.strokeStyle = "rgba(255, 74, 110, 0.9)";
+    ctx.beginPath();
+    ctx.arc(hitX, hitY, 6, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawWorm(worm, isCurrent) {
+  if (!worm.alive) return;
+  ctx.fillStyle = worm.color;
+  ctx.beginPath();
+  ctx.arc(worm.x, worm.y, config.wormRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#222";
+  ctx.beginPath();
+  ctx.arc(worm.x + 4, worm.y - 3, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#111";
+  ctx.font = "12px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillText(`${worm.health}`, worm.x, worm.y - config.wormRadius - 6);
+
+  if (isCurrent && !state.gameOver) {
+    const rad = (worm.angle * Math.PI) / 180;
+    ctx.strokeStyle = "#ffd166";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(worm.x, worm.y);
+    ctx.lineTo(worm.x + Math.cos(rad) * 36, worm.y - Math.sin(rad) * 36);
+    ctx.stroke();
+  }
+
+  drawPowerBar(worm, isCurrent);
+}
+
+function drawPowerBar(worm, isCurrent) {
+  const barWidth = 40;
+  const barHeight = 6;
+  const x = worm.x - barWidth / 2;
+  const y = worm.y + config.wormRadius + 6;
+  const power = isCurrent ? state.charge : 0;
+
+  ctx.fillStyle = "rgba(15, 24, 40, 0.75)";
+  ctx.fillRect(x, y, barWidth, barHeight);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, barWidth, barHeight);
+
+  if (power > 0) {
+    const fillWidth = barWidth * clamp(power, 0, 1);
+    const grad = ctx.createLinearGradient(x, y, x + barWidth, y);
+    grad.addColorStop(0, "#06d6a0");
+    grad.addColorStop(0.6, "#ffd166");
+    grad.addColorStop(1, "#ef476f");
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, fillWidth, barHeight);
+  }
+}
+function drawProjectiles() {
+  if (state.projectiles.length === 0) return;
+  state.projectiles.forEach((p) => {
+    ctx.fillStyle = p.weaponId === "sniper" ? "#7fffd4" : "#ff4a6e";
+    ctx.strokeStyle = "rgba(10, 12, 16, 0.7)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  });
+}
+
+function drawExplosions() {
+  if (state.explosions.length === 0) return;
+  state.explosions.forEach((boom) => {
+    const t = clamp(boom.life / boom.duration, 0, 1);
+    const ringRadius = boom.radius * (0.6 + t * 0.8);
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = `rgba(255, 209, 102, ${0.45 * (1 - t)})`;
+    ctx.beginPath();
+    ctx.arc(boom.x, boom.y, boom.radius * (0.35 + t * 0.2), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = `rgba(255, 90, 95, ${0.7 * (1 - t)})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(boom.x, boom.y, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    boom.particles.forEach((p) => {
+      const alpha = clamp(1 - p.age / p.life, 0, 1);
+      ctx.fillStyle = `rgba(255, 125, 70, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  });
+}
+function render() {
+  drawBackground();
+  drawTerrain();
+  drawTrajectory();
+  state.worms.forEach((worm, index) => drawWorm(worm, index === state.currentIndex));
+  drawProjectiles();
+  drawExplosions();
+
+  if (state.gameOver) {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+    ctx.fillRect(0, 0, state.width, state.height);
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 36px Trebuchet MS";
+    ctx.textAlign = "center";
+    ctx.fillText(`Ganador: ${state.winner}`, state.width / 2, state.height / 2);
+    ctx.font = "16px Trebuchet MS";
+    ctx.fillText("Pulsa R para reiniciar", state.width / 2, state.height / 2 + 30);
+  }
+}
+
+function updateCharge(dt) {
+  if (!state.charging) return;
+  state.charge += config.chargeRate * dt * state.chargeDir;
+  if (state.charge >= 1) {
+    state.charge = 1;
+    state.chargeDir = -1;
+  }
+  if (state.charge <= 0) {
+    state.charge = 0;
+    state.chargeDir = 1;
+  }
+  updateHud();
+}
+
+function update(time) {
+  const now = time / 1000;
+  const dt = Math.min(0.033, now - state.lastTime || 0);
+  state.lastTime = now;
+
+  if (!state.gameOver) {
+    updateAI(dt);
+    state.worms.forEach((worm, index) => {
+      const isActive = index === state.currentIndex && worm.alive;
+      updateWorm(worm, dt, isActive);
+    });
+    updateProjectiles(dt);
+    updateExplosions(dt);
+    updateCharge(dt);
+  }
+
+  render();
+  requestAnimationFrame(update);
+}
+
+window.addEventListener("resize", resize);
+window.addEventListener("keydown", (event) => {
+  if (event.code === "Space") {
+    if (!state.charging && state.projectiles.length === 0 && !state.gameOver) {
+      state.charging = true;
+      state.charge = 0;
+      state.chargeDir = 1;
+      updateHud();
+    }
+    event.preventDefault();
+  }
+
+  if (event.code === "Digit1") {
+    setWeapon(0);
+  }
+  if (event.code === "Digit2") {
+    setWeapon(1);
+  }
+  if (event.code === "Digit3") {
+    setWeapon(2);
+  }
+  if (event.code === "Digit4") {
+    setWeapon(3);
+  }
+  if (event.code === "Digit5") {
+    setWeapon(4);
+  }
+  if (event.code === "KeyQ") {
+    setWeapon(state.weaponIndex - 1);
+  }
+  if (event.code === "KeyE") {
+    setWeapon(state.weaponIndex + 1);
+  }
+
+  if (event.code === "KeyR") {
+    resetGame();
+  }
+
+  keys.add(event.key);
+});
+
+window.addEventListener("keyup", (event) => {
+  if (event.code === "Space") {
+    if (state.charging && state.projectiles.length === 0 && !state.gameOver) {
+      const worm = state.worms[state.currentIndex];
+      const weapon = getCurrentWeapon();
+      fireProjectile(worm, state.charge, weapon);
+    }
+    state.charging = false;
+    state.chargeDir = 1;
+    state.charge = 0;
+    updateHud();
+    event.preventDefault();
+  }
+
+  keys.delete(event.key);
+});
+
+resize();
+requestAnimationFrame(update);
