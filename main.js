@@ -11,8 +11,23 @@ const powerFill = document.getElementById("powerfill");
 const weaponList = document.getElementById("weaponlist");
 const commentaryEl = document.getElementById("commentary");
 const commentaryText = document.getElementById("commentary-text");
+const turnBanner = document.getElementById("turnbanner");
+const turnTeamLabel = document.getElementById("turnteam");
 
 const keys = new Set();
+
+const net = {
+  enabled: new URLSearchParams(window.location.search).has("mp"),
+  ws: null,
+  connected: false,
+  playerId: null,
+  team: null,
+  url: "",
+  prevState: null,
+  currState: null,
+  lastReceived: 0,
+  intervalMs: 33,
+};
 
 const state = {
   dpr: 1,
@@ -32,6 +47,15 @@ const state = {
   aiPlan: null,
   explosions: [],
   wind: 0,
+  seed: 0,
+};
+
+const visuals = {
+  width: 0,
+  height: 0,
+  seed: 0,
+  bgCanvas: null,
+  soilPattern: null,
 };
 
 const config = {
@@ -155,6 +179,30 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function getAimBounds(team) {
+  if (team === "Rojo") {
+    return { min: -15, max: 165 };
+  }
+  if (team === "Azul") {
+    return { min: 15, max: 195 };
+  }
+  return { min: 15, max: 165 };
+}
+
+function createRng(seed) {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 class GameScene extends Phaser.Scene {
   constructor() {
     super("game");
@@ -192,9 +240,127 @@ const phaserConfig = {
 };
 
 new Phaser.Game(phaserConfig);
+connectNet();
 
 function rand(min, max) {
   return Math.random() * (max - min) + min;
+}
+
+function seededRand(rng, min, max) {
+  return rng() * (max - min) + min;
+}
+
+function ensureVisuals() {
+  if (!ctx || !state.width || !state.height) return;
+  if (
+    visuals.width === state.width &&
+    visuals.height === state.height &&
+    visuals.seed === (state.seed || 1) &&
+    visuals.bgCanvas &&
+    visuals.soilPattern
+  ) {
+    return;
+  }
+  visuals.width = state.width;
+  visuals.height = state.height;
+  visuals.seed = state.seed || 1;
+  buildBackground();
+  buildSoilPattern();
+}
+
+function buildBackground() {
+  const bg = document.createElement("canvas");
+  bg.width = state.width;
+  bg.height = state.height;
+  const gctx = bg.getContext("2d");
+
+  const sky = gctx.createLinearGradient(0, 0, 0, state.height);
+  sky.addColorStop(0, "#4a8bd6");
+  sky.addColorStop(0.55, "#8ec6ff");
+  sky.addColorStop(1, "#dff2ff");
+  gctx.fillStyle = sky;
+  gctx.fillRect(0, 0, state.width, state.height);
+
+  const sun = gctx.createRadialGradient(
+    state.width * 0.72,
+    state.height * 0.2,
+    20,
+    state.width * 0.72,
+    state.height * 0.2,
+    state.height * 0.35
+  );
+  sun.addColorStop(0, "rgba(255, 255, 230, 0.85)");
+  sun.addColorStop(1, "rgba(255, 255, 230, 0)");
+  gctx.fillStyle = sun;
+  gctx.beginPath();
+  gctx.arc(state.width * 0.72, state.height * 0.2, state.height * 0.35, 0, Math.PI * 2);
+  gctx.fill();
+
+  const rng = createRng((state.seed || 1) ^ 0x9e3779b9);
+  drawMountainLayer(gctx, rng, state.height * 0.62, state.height * 0.18, "#5f7ea8", 0.35);
+  drawMountainLayer(gctx, rng, state.height * 0.7, state.height * 0.24, "#4c6d94", 0.55);
+
+  gctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+  for (let i = 0; i < 4; i += 1) {
+    const x = seededRand(rng, state.width * 0.1, state.width * 0.9);
+    const y = seededRand(rng, state.height * 0.08, state.height * 0.38);
+    const w = seededRand(rng, 80, 140);
+    const h = seededRand(rng, 24, 40);
+    gctx.beginPath();
+    gctx.ellipse(x, y, w, h, 0, 0, Math.PI * 2);
+    gctx.fill();
+  }
+
+  visuals.bgCanvas = bg;
+}
+
+function drawMountainLayer(gctx, rng, baseY, amp, color, alpha) {
+  gctx.save();
+  gctx.fillStyle = color;
+  gctx.globalAlpha = alpha;
+  gctx.beginPath();
+  gctx.moveTo(0, state.height);
+  gctx.lineTo(0, baseY);
+  for (let x = 0; x <= state.width; x += 60) {
+    const peak = baseY - seededRand(rng, amp * 0.4, amp);
+    gctx.lineTo(x + 30, peak);
+    gctx.lineTo(x + 60, baseY + seededRand(rng, -amp * 0.15, amp * 0.2));
+  }
+  gctx.lineTo(state.width, state.height);
+  gctx.closePath();
+  gctx.fill();
+  gctx.restore();
+}
+
+function buildSoilPattern() {
+  const texture = document.createElement("canvas");
+  texture.width = 80;
+  texture.height = 80;
+  const tctx = texture.getContext("2d");
+  tctx.fillStyle = "#5b3b2f";
+  tctx.fillRect(0, 0, texture.width, texture.height);
+
+  const rng = createRng((state.seed || 1) ^ 0x51f8d4d);
+  for (let i = 0; i < 200; i += 1) {
+    const x = seededRand(rng, 0, texture.width);
+    const y = seededRand(rng, 0, texture.height);
+    const r = seededRand(rng, 0.8, 2.2);
+    tctx.fillStyle = `rgba(255, 255, 255, ${seededRand(rng, 0.03, 0.1)})`;
+    tctx.beginPath();
+    tctx.arc(x, y, r, 0, Math.PI * 2);
+    tctx.fill();
+  }
+  for (let i = 0; i < 120; i += 1) {
+    const x = seededRand(rng, 0, texture.width);
+    const y = seededRand(rng, 0, texture.height);
+    const r = seededRand(rng, 1.2, 3.4);
+    tctx.fillStyle = `rgba(40, 20, 16, ${seededRand(rng, 0.15, 0.35)})`;
+    tctx.beginPath();
+    tctx.arc(x, y, r, 0, Math.PI * 2);
+    tctx.fill();
+  }
+
+  visuals.soilPattern = ctx.createPattern(texture, "repeat");
 }
 
 function terrainHeightAt(x) {
@@ -208,8 +374,9 @@ function buildTerrain() {
   const base = height * 0.68;
   const amp1 = height * 0.12;
   const amp2 = height * 0.06;
-  const phase1 = rand(0, Math.PI * 2);
-  const phase2 = rand(0, Math.PI * 2);
+  const rng = createRng(state.seed || 1);
+  const phase1 = seededRand(rng, 0, Math.PI * 2);
+  const phase2 = seededRand(rng, 0, Math.PI * 2);
 
   state.terrain = new Array(Math.floor(width) + 1);
   for (let x = 0; x <= width; x += 1) {
@@ -278,7 +445,13 @@ function makeWorm({ id, name, team, color, x }) {
   };
 }
 
-function resetGame() {
+function resetGame(seedOverride) {
+  if (Number.isFinite(seedOverride)) {
+    state.seed = Math.floor(seedOverride);
+  }
+  if (!state.seed) {
+    state.seed = Math.floor(Math.random() * 1e9);
+  }
   state.gameOver = false;
   state.winner = null;
   state.projectiles = [];
@@ -299,15 +472,21 @@ function resetGame() {
 function resize(width, height) {
   if (!canvas || !ctx) return;
   state.dpr = 1;
-  state.width = Math.floor(width);
-  state.height = Math.floor(height);
-  canvas.width = state.width;
-  canvas.height = state.height;
-  canvas.style.width = `${state.width}px`;
-  canvas.style.height = `${state.height}px`;
+  const nextWidth = Math.floor(width);
+  const nextHeight = Math.floor(height);
+  if (!net.enabled || !state.width || !state.height) {
+    state.width = nextWidth;
+    state.height = nextHeight;
+  }
+  canvas.width = nextWidth;
+  canvas.height = nextHeight;
+  canvas.style.width = `${nextWidth}px`;
+  canvas.style.height = `${nextHeight}px`;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   buildWeaponList();
-  resetGame();
+  if (!net.enabled) {
+    resetGame();
+  }
 }
 
 function updateHud() {
@@ -333,6 +512,26 @@ function updateHud() {
   powerFill.style.width = `${Math.round(state.charge * 100)}%`;
   powerBar.classList.toggle("charging", state.charging);
   syncWeaponList();
+  updateTurnBanner();
+}
+
+function updateTurnBanner() {
+  if (!turnBanner || !turnTeamLabel) return;
+  const activeTeam = getActiveTeam();
+  const isMyTurn = net.enabled && net.team && activeTeam === net.team;
+  if (!net.enabled) {
+    turnBanner.classList.remove("active", "team-rojo", "team-azul");
+    turnBanner.style.opacity = "0";
+    return;
+  }
+  if (isMyTurn) {
+    turnTeamLabel.textContent = net.team;
+    turnBanner.classList.add("active");
+  } else {
+    turnBanner.classList.remove("active");
+  }
+  turnBanner.classList.toggle("team-rojo", net.team === "Rojo");
+  turnBanner.classList.toggle("team-azul", net.team === "Azul");
 }
 
 function buildWeaponList() {
@@ -352,7 +551,15 @@ function buildWeaponList() {
     name.textContent = weapon.name;
     button.appendChild(key);
     button.appendChild(name);
-    button.addEventListener("click", () => setWeapon(index));
+    button.addEventListener("click", () => {
+      if (net.enabled) {
+        if (!canApplyInput()) return;
+        const code = `Digit${index + 1}`;
+        sendNet({ type: "input", action: "keydown", code, key: code });
+        return;
+      }
+      setWeapon(index);
+    });
     li.appendChild(button);
     weaponList.appendChild(li);
   });
@@ -390,6 +597,161 @@ function sayComment(type, ctx = {}) {
   commentaryEl.classList.remove("commentary-pop");
   void commentaryEl.offsetWidth;
   commentaryEl.classList.add("commentary-pop");
+}
+
+function getActiveTeam() {
+  const worm = state.worms[state.currentIndex];
+  return worm?.team ?? null;
+}
+
+function canApplyInput(sourceTeam = null) {
+  const activeTeam = getActiveTeam();
+  if (!activeTeam) return false;
+  if (!net.enabled) return true;
+  if (sourceTeam) return sourceTeam === activeTeam;
+  if (net.team) return net.team === activeTeam;
+  return false;
+}
+
+function sendNet(msg) {
+  if (!net.enabled || !net.connected || !net.ws) return;
+  net.ws.send(JSON.stringify(msg));
+}
+
+function handleNetMessage(msg) {
+  if (!msg || typeof msg.type !== "string") return;
+  if (msg.type === "welcome") {
+    net.playerId = msg.id;
+    net.team = msg.team;
+    state.seed = msg.seed ?? state.seed;
+    aiConfig.enabled = false;
+    net.prevState = null;
+    net.currState = null;
+    if (msg.state) {
+      applyState(msg.state);
+    }
+    return;
+  }
+  if (msg.type === "reset") {
+    net.prevState = null;
+    net.currState = null;
+    if (msg.state) {
+      applySnapshotToState(msg.state);
+    }
+    state.explosions = [];
+    updateHud();
+    return;
+  }
+  if (msg.type === "crater") {
+    if (Number.isFinite(msg.x) && Number.isFinite(msg.y) && Number.isFinite(msg.radius)) {
+      carveCrater(msg.x, msg.y, msg.radius);
+      spawnExplosion(msg.x, msg.y, msg.radius);
+    }
+    return;
+  }
+  if (msg.type === "state") {
+    applyState(msg.state);
+  }
+}
+
+function applyState(snapshot) {
+  if (!snapshot) return;
+  if (net.enabled) {
+    const now = performance.now();
+    if (net.currState) {
+      net.prevState = net.currState;
+      const delta = now - net.lastReceived;
+      if (delta > 5) net.intervalMs = delta;
+    }
+    net.currState = snapshot;
+    net.lastReceived = now;
+  }
+  applySnapshotToState(snapshot);
+}
+
+function applySnapshotToState(snapshot) {
+  state.width = snapshot.width;
+  state.height = snapshot.height;
+  state.seed = snapshot.seed ?? state.seed;
+  if (snapshot.terrain) {
+    state.terrain = snapshot.terrain;
+  }
+  if (snapshot.worms) {
+    state.worms = snapshot.worms.map((worm) => ({ ...worm }));
+  }
+  state.currentIndex = snapshot.currentIndex ?? state.currentIndex;
+  state.weaponIndex = snapshot.weaponIndex ?? state.weaponIndex;
+  if (snapshot.projectiles) {
+    state.projectiles = snapshot.projectiles.map((p) => ({ ...p }));
+  } else if (!net.enabled) {
+    state.projectiles = [];
+  }
+  state.charging = snapshot.charging ?? false;
+  state.charge = snapshot.charge ?? 0;
+  state.gameOver = snapshot.gameOver ?? false;
+  state.winner = snapshot.winner ?? null;
+  state.wind = snapshot.wind ?? 0;
+  updateHud();
+}
+
+function applyInterpolatedState() {
+  if (!net.enabled || !net.currState) return;
+  const prev = net.prevState || net.currState;
+  const now = performance.now();
+  const alpha = clamp((now - net.lastReceived) / (net.intervalMs || 33), 0, 1);
+
+  if (net.currState.worms) {
+    state.worms = net.currState.worms.map((worm, index) => {
+      const prevWorm = prev.worms?.[index] || worm;
+      return {
+        ...worm,
+        x: lerp(prevWorm.x, worm.x, alpha),
+        y: lerp(prevWorm.y, worm.y, alpha),
+        angle: lerp(prevWorm.angle ?? worm.angle, worm.angle, alpha),
+      };
+    });
+  }
+
+  if (net.currState.projectiles) {
+    state.projectiles = net.currState.projectiles.map((proj, index) => {
+      const prevProj = prev.projectiles?.[index] || proj;
+      return {
+        ...proj,
+        x: lerp(prevProj.x, proj.x, alpha),
+        y: lerp(prevProj.y, proj.y, alpha),
+      };
+    });
+  }
+}
+
+function connectNet() {
+  if (!net.enabled) return;
+  const host = window.location.hostname || "localhost";
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  net.url = `${protocol}://${host}:8080`;
+  aiConfig.enabled = false;
+  try {
+    net.ws = new WebSocket(net.url);
+  } catch (err) {
+    console.warn("No se pudo conectar al servidor WS", err);
+    return;
+  }
+  net.ws.addEventListener("open", () => {
+    net.connected = true;
+    sendNet({ type: "join" });
+  });
+  net.ws.addEventListener("close", () => {
+    net.connected = false;
+  });
+  net.ws.addEventListener("message", (event) => {
+    let msg = null;
+    try {
+      msg = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    handleNetMessage(msg);
+  });
 }
 
 function updateAI(dt) {
@@ -525,7 +887,8 @@ function updateWorm(worm, dt, isActive) {
     if (up !== down) {
       const dir = up ? 1 : -1;
       worm.angle += dir * config.angleSpeed * dt;
-      worm.angle = clamp(worm.angle, 15, 165);
+      const bounds = getAimBounds(worm.team);
+      worm.angle = clamp(worm.angle, bounds.min, bounds.max);
     }
   }
 
@@ -658,10 +1021,10 @@ function explode(x, y, radius, maxDamage) {
       return;
     }
 
-    const knock = 160 * falloff;
+    const knock = 260 * falloff;
     const angle = Math.atan2(dy, dx);
     worm.vx += Math.cos(angle) * knock;
-    worm.vy += Math.sin(angle) * knock - 120 * falloff;
+    worm.vy += Math.sin(angle) * knock - 200 * falloff;
     worm.onGround = false;
   });
 
@@ -733,43 +1096,66 @@ function updateExplosions(dt) {
 }
 
 function drawBackground() {
-  const grad = ctx.createLinearGradient(0, 0, 0, state.height);
-  grad.addColorStop(0, "#bde0fe");
-  grad.addColorStop(0.6, "#d0f4ff");
-  grad.addColorStop(1, "#fef9ef");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, state.width, state.height);
-
-  ctx.fillStyle = "rgba(255, 255, 255, 0.65)";
-  for (let i = 0; i < 5; i += 1) {
-    const x = (state.width * (i + 1)) / 6;
-    const y = state.height * 0.12 + (i % 2) * 30;
-    ctx.beginPath();
-    ctx.ellipse(x, y, 70, 28, 0, 0, Math.PI * 2);
-    ctx.fill();
+  ensureVisuals();
+  if (visuals.bgCanvas) {
+    ctx.drawImage(visuals.bgCanvas, 0, 0, state.width, state.height);
   }
 }
 
 function drawTerrain() {
-  ctx.fillStyle = "#5d9c59";
-  ctx.beginPath();
-  ctx.moveTo(0, state.height);
-  ctx.lineTo(0, state.terrain[0]);
-  for (let x = 1; x < state.terrain.length; x += 1) {
-    ctx.lineTo(x, state.terrain[x]);
-  }
-  ctx.lineTo(state.width, state.height);
-  ctx.closePath();
-  ctx.fill();
+  const terrainPath = buildTerrainPath();
+  const edgePath = buildTerrainEdgePath();
 
-  ctx.strokeStyle = "#4a7c48";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(0, state.terrain[0]);
-  for (let x = 1; x < state.terrain.length; x += 1) {
-    ctx.lineTo(x, state.terrain[x]);
+  ctx.save();
+  ctx.fillStyle = "#6a4a39";
+  ctx.fill(terrainPath);
+
+  ctx.clip(terrainPath);
+  const soilGrad = ctx.createLinearGradient(0, state.height * 0.35, 0, state.height);
+  soilGrad.addColorStop(0, "rgba(120, 86, 66, 0.6)");
+  soilGrad.addColorStop(1, "rgba(60, 35, 25, 0.9)");
+  ctx.fillStyle = soilGrad;
+  ctx.fillRect(0, 0, state.width, state.height);
+
+  if (visuals.soilPattern) {
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = visuals.soilPattern;
+    ctx.fillRect(0, 0, state.width, state.height);
+    ctx.globalAlpha = 1;
   }
-  ctx.stroke();
+
+  ctx.restore();
+
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "#2b7d3d";
+  ctx.lineWidth = 8;
+  ctx.stroke(edgePath);
+
+  ctx.strokeStyle = "#5fd17a";
+  ctx.lineWidth = 3;
+  ctx.stroke(edgePath);
+}
+
+function buildTerrainPath() {
+  const path = new Path2D();
+  path.moveTo(0, state.height);
+  path.lineTo(0, state.terrain[0]);
+  for (let x = 1; x < state.terrain.length; x += 1) {
+    path.lineTo(x, state.terrain[x]);
+  }
+  path.lineTo(state.width, state.height);
+  path.closePath();
+  return path;
+}
+
+function buildTerrainEdgePath() {
+  const path = new Path2D();
+  path.moveTo(0, state.terrain[0]);
+  for (let x = 1; x < state.terrain.length; x += 1) {
+    path.lineTo(x, state.terrain[x]);
+  }
+  return path;
 }
 
 function drawTrajectory() {
@@ -828,20 +1214,51 @@ function drawTrajectory() {
 
 function drawWorm(worm, isCurrent) {
   if (!worm.alive) return;
-  ctx.fillStyle = worm.color;
+  const shadowY = worm.y + config.wormRadius + 4;
+  ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+  ctx.beginPath();
+  ctx.ellipse(worm.x, shadowY, config.wormRadius * 0.9, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const bodyGrad = ctx.createRadialGradient(
+    worm.x - 4,
+    worm.y - 6,
+    2,
+    worm.x,
+    worm.y,
+    config.wormRadius + 2
+  );
+  bodyGrad.addColorStop(0, "rgba(255, 255, 255, 0.65)");
+  bodyGrad.addColorStop(0.4, worm.color);
+  bodyGrad.addColorStop(1, "rgba(0, 0, 0, 0.35)");
+  ctx.fillStyle = bodyGrad;
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
+  ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.arc(worm.x, worm.y, config.wormRadius, 0, Math.PI * 2);
   ctx.fill();
+  ctx.stroke();
 
-  ctx.fillStyle = "#222";
+  ctx.fillStyle = "#f6f6f6";
   ctx.beginPath();
-  ctx.arc(worm.x + 4, worm.y - 3, 2, 0, Math.PI * 2);
+  ctx.arc(worm.x + 4, worm.y - 3, 3, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.fillStyle = "#111";
-  ctx.font = "12px Trebuchet MS";
+  ctx.beginPath();
+  ctx.arc(worm.x + 5, worm.y - 3, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  const hpText = `${worm.health}`;
+  ctx.font = "11px Trebuchet MS";
   ctx.textAlign = "center";
-  ctx.fillText(`${worm.health}`, worm.x, worm.y - config.wormRadius - 6);
+  const textWidth = ctx.measureText(hpText).width;
+  const labelX = worm.x - textWidth / 2 - 6;
+  const labelY = worm.y - config.wormRadius - 20;
+  ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+  ctx.fillRect(labelX, labelY, textWidth + 12, 14);
+  ctx.fillStyle = "#f8f8fb";
+  ctx.fillText(hpText, worm.x, labelY + 11);
 
   if (isCurrent && !state.gameOver) {
     const rad = (worm.angle * Math.PI) / 180;
@@ -882,11 +1299,23 @@ function drawPowerBar(worm, isCurrent) {
 function drawProjectiles() {
   if (state.projectiles.length === 0) return;
   state.projectiles.forEach((p) => {
-    ctx.fillStyle = p.weaponId === "sniper" ? "#7fffd4" : "#ff4a6e";
+    const color = p.weaponId === "sniper" ? "#7fffd4" : "#ff4a6e";
     ctx.strokeStyle = "rgba(10, 12, 16, 0.7)";
     ctx.lineWidth = 1;
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = color;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius + 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.fillStyle = color;
     ctx.fill();
     ctx.stroke();
   });
@@ -923,7 +1352,13 @@ function drawExplosions() {
 }
 function render() {
   if (!ctx) return;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (!state.width || !state.height) return;
+  if (net.enabled) {
+    applyInterpolatedState();
+  }
+  const scaleX = canvas.width / state.width;
+  const scaleY = canvas.height / state.height;
+  ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
   drawBackground();
   drawTerrain();
   drawTrajectory();
@@ -958,6 +1393,10 @@ function updateCharge(dt) {
 }
 
 function step(dt) {
+  if (net.enabled) {
+    updateExplosions(Math.min(0.033, dt));
+    return;
+  }
   const safeDt = Math.min(0.033, dt);
   if (!state.gameOver) {
     updateAI(safeDt);
@@ -971,8 +1410,8 @@ function step(dt) {
   }
 }
 
-function bindInput(phaserScene) {
-  phaserScene.input.keyboard.on("keydown", (event) => {
+function handleKeyDown(event, sourceTeam = null) {
+  if (!canApplyInput(sourceTeam)) return false;
   if (event.code === "Space") {
     if (!state.charging && state.projectiles.length === 0 && !state.gameOver) {
       state.charging = true;
@@ -1005,14 +1444,12 @@ function bindInput(phaserScene) {
     setWeapon(state.weaponIndex + 1);
   }
 
-  if (event.code === "KeyR") {
-    resetGame();
-  }
-
   keys.add(event.key);
-  });
+  return true;
+}
 
-  phaserScene.input.keyboard.on("keyup", (event) => {
+function handleKeyUp(event, sourceTeam = null) {
+  if (!canApplyInput(sourceTeam)) return false;
   if (event.code === "Space") {
     if (state.charging && state.projectiles.length === 0 && !state.gameOver) {
       const worm = state.worms[state.currentIndex];
@@ -1027,5 +1464,42 @@ function bindInput(phaserScene) {
   }
 
   keys.delete(event.key);
+  return true;
+}
+
+function bindInput(phaserScene) {
+  phaserScene.input.keyboard.on("keydown", (event) => {
+    if (event.code === "KeyR") {
+      if (net.enabled) {
+        if (net.connected) {
+          sendNet({ type: "reset", seed: Math.floor(Math.random() * 1e9) });
+        } else {
+          resetGame();
+        }
+      } else {
+        resetGame();
+      }
+      return;
+    }
+
+    if (net.enabled) {
+      if (canApplyInput()) {
+        sendNet({ type: "input", action: "keydown", code: event.code, key: event.key });
+      }
+      return;
+    }
+
+    handleKeyDown(event);
+  });
+
+  phaserScene.input.keyboard.on("keyup", (event) => {
+    if (net.enabled) {
+      if (canApplyInput()) {
+        sendNet({ type: "input", action: "keyup", code: event.code, key: event.key });
+      }
+      return;
+    }
+
+    handleKeyUp(event);
   });
 }

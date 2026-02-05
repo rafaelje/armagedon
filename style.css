@@ -233,6 +233,43 @@ html, body {
   pointer-events: none;
 }
 
+.turn-banner {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(16, 20, 30, 0.85);
+  color: #f8f8fb;
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 209, 102, 0.5);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.turn-banner.active {
+  opacity: 1;
+  transform: translateX(-50%) scale(1.02);
+}
+
+.turn-banner .team {
+  margin-left: 6px;
+  font-weight: 700;
+}
+
+.turn-banner.team-rojo {
+  border-color: rgba(239, 71, 111, 0.7);
+}
+
+.turn-banner.team-azul {
+  border-color: rgba(17, 138, 178, 0.7);
+}
+
 .commentary-badge {
   font-size: 11px;
   letter-spacing: 0.6px;

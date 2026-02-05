@@ -1,0 +1,15 @@
+{
+  "name": "worms-armageddon-mp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "server": "node server.js",
+    "deploy": "firebase deploy --only hosting"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "firebase-tools": "^13.25.1"
+  }
+}
