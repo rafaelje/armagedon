@@ -2,7 +2,7 @@
 
 A multiplayer tactical artillery game inspired by Worms Armageddon, built with Phaser 3, Node.js, and WebSockets.
 
-![Gameplay Screenshot](assets/screenshot.jpg)
+![Gameplay Screenshot](assets/screenshot.png)
 
 ## 🚀 Features
 
@@ -61,6 +61,26 @@ A multiplayer tactical artillery game inspired by Worms Armageddon, built with P
 
 2.  Open `index.html` in your browser. You can use a local server like `Live Server` in VS Code or any static file server.
     - To enable Multiplayer mode, add `?mp=1` to the URL (e.g., `http://localhost:5500/index.html?mp=1`).
+
+## 🧪 Testing & Verification
+
+### Unit Tests
+
+Run the unit tests using Jest:
+
+```bash
+npm test
+```
+
+### Frontend Verification
+
+To verify that the game loads correctly and generate a screenshot, you can use the provided Python script (requires Playwright):
+
+```bash
+python3 verification/verify_game_load.py
+```
+
+This will generate `verification/game_loaded.png`.
 
 ## 🚀 Deployment
 
