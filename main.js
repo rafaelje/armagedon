@@ -1350,6 +1350,243 @@ function drawTrajectory() {
   ctx.restore();
 }
 
+function drawWeaponIcon(weaponId, x, y, scale) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  if (weaponId === "bazooka") {
+    // Tube body
+    ctx.fillStyle = "#556B2F";
+    ctx.fillRect(-14, -3, 28, 6);
+    // Muzzle (wider front)
+    ctx.fillStyle = "#666";
+    ctx.fillRect(14, -4.5, 5, 9);
+    // Rear grip
+    ctx.fillStyle = "#3d4f22";
+    ctx.fillRect(-14, -2, 4, 8);
+    // Highlight stripe
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.fillRect(-10, -3, 20, 2);
+  } else if (weaponId === "grenade") {
+    // Body
+    ctx.fillStyle = "#2d5a27";
+    ctx.beginPath();
+    ctx.arc(0, 2, 7, 0, Math.PI * 2);
+    ctx.fill();
+    // Highlight
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.beginPath();
+    ctx.arc(-2, 0, 3, 0, Math.PI * 2);
+    ctx.fill();
+    // Cap
+    ctx.fillStyle = "#444";
+    ctx.fillRect(-2.5, -6, 5, 4);
+    // Fuse
+    ctx.strokeStyle = "#8B4513";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, -6);
+    ctx.quadraticCurveTo(4, -10, 6, -8);
+    ctx.stroke();
+    // Spark
+    ctx.fillStyle = "#FFD700";
+    ctx.beginPath();
+    ctx.arc(6, -8, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#FFA500";
+    ctx.beginPath();
+    ctx.arc(6, -8, 1, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (weaponId === "mortar") {
+    // Base
+    ctx.fillStyle = "#555";
+    ctx.fillRect(-8, 4, 16, 4);
+    // Barrel (thick short tube)
+    ctx.fillStyle = "#444";
+    ctx.fillRect(-5, -8, 10, 14);
+    // Bore opening
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.ellipse(0, -8, 4, 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Metal highlight
+    ctx.fillStyle = "#777";
+    ctx.fillRect(-5, -4, 3, 10);
+  } else if (weaponId === "sniper") {
+    // Barrel (long thin)
+    ctx.fillStyle = "#222";
+    ctx.fillRect(-16, -1.5, 32, 3);
+    // Stock
+    ctx.fillStyle = "#6B3A2A";
+    ctx.beginPath();
+    ctx.moveTo(-16, -2.5);
+    ctx.lineTo(-16, 4);
+    ctx.lineTo(-10, 2);
+    ctx.lineTo(-10, -2.5);
+    ctx.closePath();
+    ctx.fill();
+    // Scope mount
+    ctx.fillStyle = "#333";
+    ctx.fillRect(2, -5, 8, 3);
+    // Scope lens
+    ctx.fillStyle = "#446";
+    ctx.beginPath();
+    ctx.arc(10, -3.5, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#222";
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    // Scope lens glint
+    ctx.fillStyle = "rgba(150,180,255,0.4)";
+    ctx.beginPath();
+    ctx.arc(9.5, -4, 1, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (weaponId === "pistol") {
+    // Barrel
+    ctx.fillStyle = "#555";
+    ctx.fillRect(-4, -2, 14, 4);
+    // Slide top
+    ctx.fillStyle = "#444";
+    ctx.fillRect(-4, -3, 14, 2);
+    // Grip
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.moveTo(-4, 2);
+    ctx.lineTo(-4, 9);
+    ctx.lineTo(2, 9);
+    ctx.lineTo(4, 2);
+    ctx.closePath();
+    ctx.fill();
+    // Trigger guard
+    ctx.strokeStyle = "#555";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(2, 4, 3, 0, Math.PI);
+    ctx.stroke();
+    // Muzzle
+    ctx.fillStyle = "#333";
+    ctx.fillRect(10, -1.5, 2, 3);
+  }
+
+  ctx.restore();
+}
+
+function drawWormWeapon(worm, rad, weaponId) {
+  ctx.save();
+  ctx.translate(worm.x, worm.y);
+  ctx.rotate(-rad);
+
+  const armLen = 36;
+
+  if (weaponId === "bazooka") {
+    // Tube
+    ctx.fillStyle = "#556B2F";
+    ctx.fillRect(6, -3, 26, 6);
+    ctx.fillStyle = "#666";
+    ctx.fillRect(32, -4, 4, 8);
+    ctx.fillStyle = "#3d4f22";
+    ctx.fillRect(6, -2, 3, 7);
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    ctx.fillRect(10, -3, 18, 2);
+  } else if (weaponId === "grenade") {
+    // Arm holding grenade
+    ctx.strokeStyle = "rgba(0,0,0,0.3)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(8, 0);
+    ctx.lineTo(20, 0);
+    ctx.stroke();
+    // Body
+    ctx.fillStyle = "#2d5a27";
+    ctx.beginPath();
+    ctx.arc(24, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    ctx.beginPath();
+    ctx.arc(22, -1.5, 2, 0, Math.PI * 2);
+    ctx.fill();
+    // Cap + fuse
+    ctx.fillStyle = "#444";
+    ctx.fillRect(22, -7, 4, 3);
+    ctx.strokeStyle = "#8B4513";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(24, -7);
+    ctx.quadraticCurveTo(28, -10, 30, -8);
+    ctx.stroke();
+    ctx.fillStyle = "#FFD700";
+    ctx.beginPath();
+    ctx.arc(30, -8, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (weaponId === "mortar") {
+    // Thick short barrel
+    ctx.fillStyle = "#444";
+    ctx.fillRect(6, -5, 22, 10);
+    // Bore
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.ellipse(28, 0, 2, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Metal highlight
+    ctx.fillStyle = "#777";
+    ctx.fillRect(6, -5, 3, 10);
+    // Base bracket
+    ctx.fillStyle = "#555";
+    ctx.fillRect(6, 3, 16, 3);
+  } else if (weaponId === "sniper") {
+    // Long barrel
+    ctx.fillStyle = "#222";
+    ctx.fillRect(6, -1.5, 30, 3);
+    // Stock
+    ctx.fillStyle = "#6B3A2A";
+    ctx.beginPath();
+    ctx.moveTo(6, -2.5);
+    ctx.lineTo(6, 4);
+    ctx.lineTo(12, 2);
+    ctx.lineTo(12, -2.5);
+    ctx.closePath();
+    ctx.fill();
+    // Scope
+    ctx.fillStyle = "#333";
+    ctx.fillRect(20, -5, 8, 3);
+    ctx.fillStyle = "#446";
+    ctx.beginPath();
+    ctx.arc(28, -3.5, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(150,180,255,0.35)";
+    ctx.beginPath();
+    ctx.arc(27.5, -4, 0.8, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (weaponId === "pistol") {
+    // Barrel
+    ctx.fillStyle = "#555";
+    ctx.fillRect(8, -2, 14, 4);
+    ctx.fillStyle = "#444";
+    ctx.fillRect(8, -3, 14, 2);
+    // Grip
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.moveTo(8, 2);
+    ctx.lineTo(8, 8);
+    ctx.lineTo(14, 8);
+    ctx.lineTo(16, 2);
+    ctx.closePath();
+    ctx.fill();
+    // Muzzle
+    ctx.fillStyle = "#333";
+    ctx.fillRect(22, -1.5, 2, 3);
+  }
+
+  // Aim dot at tip
+  ctx.fillStyle = "#ffd166";
+  ctx.beginPath();
+  ctx.arc(armLen, 0, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
 function drawWorm(worm, isCurrent) {
   if (!worm.alive) return;
   const r = config.wormRadius;
@@ -1503,20 +1740,10 @@ function drawWorm(worm, isCurrent) {
   ctx.fillStyle = "rgba(255,255,255,0.5)";
   ctx.fillText(worm.name, worm.x, labelY - 2);
 
-  // Aim line
+  // Weapon + aim dot
   if (isCurrent && !state.gameOver) {
-    ctx.strokeStyle = "#ffd166";
-    ctx.lineWidth = 2;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(worm.x, worm.y);
-    ctx.lineTo(worm.x + Math.cos(rad) * 36, worm.y - Math.sin(rad) * 36);
-    ctx.stroke();
-    // Aim dot
-    ctx.fillStyle = "#ffd166";
-    ctx.beginPath();
-    ctx.arc(worm.x + Math.cos(rad) * 36, worm.y - Math.sin(rad) * 36, 3, 0, Math.PI * 2);
-    ctx.fill();
+    const weaponId = getCurrentWeapon().id;
+    drawWormWeapon(worm, rad, weaponId);
   }
 
   drawPowerBar(worm, isCurrent);
@@ -1768,7 +1995,7 @@ function drawWindIndicator() {
 function drawWeaponBar() {
   const locked = state.projectiles.length > 0 || state.charging || state.gameOver;
   const slotW = 70;
-  const slotH = 28;
+  const slotH = 44;
   const gap = 6;
   const totalW = weapons.length * slotW + (weapons.length - 1) * gap;
   const startX = (state.width - totalW) / 2;
@@ -1804,17 +2031,23 @@ function drawWeaponBar() {
     ctx.fill();
     ctx.stroke();
 
-    // Key number
-    ctx.font = "bold 10px Trebuchet MS";
+    // Key number (top-left corner)
+    ctx.font = "bold 9px Trebuchet MS";
     ctx.textAlign = "left";
     ctx.fillStyle = isActive ? "#ffd166" : "rgba(255,255,255,0.5)";
-    ctx.fillText(`${i + 1}`, x + 6, y + 18);
+    ctx.fillText(`${i + 1}`, x + 4, y + 10);
 
-    // Weapon name
-    ctx.font = "11px Trebuchet MS";
+    // Weapon icon (centered in upper area)
+    const iconAlpha = locked && !isActive ? 0.4 : 1;
+    ctx.globalAlpha = iconAlpha;
+    drawWeaponIcon(weapons[i].id, x + slotW / 2, y + 20, 0.85);
+    ctx.globalAlpha = 1;
+
+    // Weapon name (below icon)
+    ctx.font = "9px Trebuchet MS";
     ctx.textAlign = "center";
-    ctx.fillStyle = isActive ? "#fff" : (locked ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.8)");
-    ctx.fillText(weapons[i].name, x + slotW / 2 + 4, y + 18);
+    ctx.fillStyle = isActive ? "#fff" : (locked ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.75)");
+    ctx.fillText(weapons[i].name, x + slotW / 2, y + 39);
   }
   ctx.restore();
 }
