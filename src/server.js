@@ -1,12 +1,13 @@
-const { WebSocketServer } = require("ws");
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 const {
   GAME_WIDTH, GAME_HEIGHT, config, weapons,
   clamp, getAimBounds, createRng, seededRand,
   terrainHeightAt, makeWorm, updateWorm
-} = require("./game");
+} = require("./game.js");
 
-const PORT = Number(process.env.PORT || 8080);
-const wss = new WebSocketServer({ port: PORT });
+const PORT = Deno.env.get("PORT") ? Number(Deno.env.get("PORT")) : 8080;
 
 const TICK_RATE = 30;
 const WIND_SCALE = 20;
@@ -443,11 +444,11 @@ function snapshot(full = false) {
 
 function broadcast(msg) {
   const data = JSON.stringify(msg);
-  wss.clients.forEach((client) => {
-    if (client.readyState === 1) {
-      client.send(data);
+  for (const socket of clients.keys()) {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(data);
     }
-  });
+  }
 }
 
 function broadcastState(full = false) {
@@ -475,26 +476,36 @@ function broadcastPlayers() {
   broadcast({ type: "players", players });
 }
 
-wss.on("connection", (ws) => {
-  const id = `p${nextId++}`;
-  const team = assignTeam();
-  clients.set(ws, { id, team });
+function handleSocket(socket) {
+  socket.onopen = () => {
+    const id = `p${nextId++}`;
+    const team = assignTeam();
+    clients.set(socket, { id, team });
+  };
 
-  ws.on("message", (data) => {
+  socket.onmessage = (event) => {
     let msg = null;
     try {
-      msg = JSON.parse(data.toString());
+      msg = JSON.parse(event.data);
     } catch {
       return;
     }
 
     if (msg.type === "join") {
-      ws.send(JSON.stringify({ type: "welcome", id, team, seed: state.seed, state: snapshot(true) }));
+      const clientInfo = clients.get(socket);
+      if (!clientInfo) return;
+      const { id, team } = clientInfo;
+
+      socket.send(JSON.stringify({ type: "welcome", id, team, seed: state.seed, state: snapshot(true) }));
       broadcastPlayers();
       return;
     }
 
     if (msg.type === "input") {
+      const clientInfo = clients.get(socket);
+      if (!clientInfo) return;
+      const { team } = clientInfo;
+
       if (team === "Spectator") return;
       if (team !== getActiveTeam()) return;
       if (msg.action === "keydown") {
@@ -514,13 +525,56 @@ wss.on("connection", (ws) => {
       resetGame(seed);
       broadcast({ type: "reset", state: snapshot(true) });
     }
-  });
+  };
 
-  ws.on("close", () => {
-    clients.delete(ws);
+  socket.onclose = () => {
+    clients.delete(socket);
     broadcastPlayers();
-  });
-});
+  };
+
+  socket.onerror = (e) => {
+    console.error("WebSocket error:", e);
+    if (socket.readyState !== WebSocket.OPEN) {
+        clients.delete(socket);
+    }
+  };
+}
+
+async function handler(req) {
+  const url = new URL(req.url);
+
+  if (req.headers.get("upgrade") === "websocket") {
+    const { socket, response } = Deno.upgradeWebSocket(req);
+    handleSocket(socket);
+    return response;
+  }
+
+  let path = url.pathname;
+  if (path === "/") path = "/index.html";
+  if (path === "/src/main.js") {
+     // No redirection needed, it should fail to find src/main.js as it is now deleted in next step
+     // but src/server.js is the entry point
+  }
+
+  try {
+    const filePath = "." + path;
+    const file = await Deno.readFile(filePath);
+    const contentType = getContentType(path);
+    return new Response(file, { headers: { "content-type": contentType } });
+  } catch {
+    return new Response("Not Found", { status: 404 });
+  }
+}
+
+function getContentType(path) {
+  if (path.endsWith(".html")) return "text/html";
+  if (path.endsWith(".js")) return "application/javascript";
+  if (path.endsWith(".css")) return "text/css";
+  if (path.endsWith(".png")) return "image/png";
+  if (path.endsWith(".jpg")) return "image/jpeg";
+  if (path.endsWith(".svg")) return "image/svg+xml";
+  return "application/octet-stream";
+}
 
 resetGame(seed);
 setInterval(() => {
@@ -528,4 +582,5 @@ setInterval(() => {
   broadcastState(false);
 }, 1000 / TICK_RATE);
 
-console.log(`WS server listo en ws://localhost:${PORT}`);
+console.log(`Deno server running on port ${PORT}`);
+Deno.serve({ port: PORT, handler });
