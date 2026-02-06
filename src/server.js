@@ -3,7 +3,7 @@ const {
   GAME_WIDTH, GAME_HEIGHT, config, weapons,
   clamp, getAimBounds, createRng, seededRand,
   terrainHeightAt, makeWorm, updateWorm
-} = require("./src/game");
+} = require("./game");
 
 const PORT = Number(process.env.PORT || 8080);
 const wss = new WebSocketServer({ port: PORT });
