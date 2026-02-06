@@ -5,7 +5,7 @@ const {
   GAME_WIDTH, GAME_HEIGHT, config, weapons,
   clamp, getAimBounds, createRng, seededRand,
   terrainHeightAt, makeWorm, updateWorm
-} = require("./game.js");
+} = require("./src/game.js");
 
 const PORT = Deno.env.get("PORT") ? Number(Deno.env.get("PORT")) : 8080;
 
