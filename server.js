@@ -344,7 +344,9 @@ function nextTurn() {
   const worm = state.worms[state.currentIndex];
   worm.angle = worm.team === "Rojo" ? 45 : 135;
   state.charge = 0;
+  state.charging = false;
   state.turnTimer = state.turnTimerMax;
+  pressed.clear();
 }
 
 function updateWorm(worm, dt, isActive) {
