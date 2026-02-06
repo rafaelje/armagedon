@@ -10,6 +10,17 @@ const commentaryState = {
 
 const keys = new Set();
 
+const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
+  navigator.userAgent
+) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
+
+if (isMobile && screen.orientation && screen.orientation.lock) {
+  screen.orientation.lock("landscape").catch(() => {});
+}
+
+const touchButtons = [];
+const activeTouches = new Map();
+
 const net = {
   enabled: new URLSearchParams(window.location.search).has("mp"),
   ws: null,
@@ -588,6 +599,7 @@ function resize(width, height) {
   canvas.style.width = `${nextWidth}px`;
   canvas.style.height = `${nextHeight}px`;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (isMobile) updateTouchLayout();
   if (!net.enabled) {
     resetGame();
   }
@@ -2766,7 +2778,7 @@ function drawCommentary() {
     : 1;
 
   const avatarX = 38;
-  const avatarY = state.height - 110;
+  const avatarY = isMobile ? state.height - 180 : state.height - 110;
   const avatarScale = 1.6;
 
   ctx.save();
@@ -2832,6 +2844,242 @@ function drawCommentary() {
   ctx.restore();
 }
 
+function updateTouchLayout() {
+  touchButtons.length = 0;
+  const w = state.width;
+  const h = state.height;
+
+  // Weapon bar occupies: y = h-94 to h-46, status bar: h-42 to h-8
+  // Commentator avatar at (38, h-110) r=32 → left x 6..70, y h-142..h-78
+  // Place controls ABOVE weapon bar zone (h - 100) and away from commentator
+
+  const btnSize = 52;
+  const gap = 8;
+  const margin = 14;
+  const fireR = 36;
+  const wpnW = 38;
+  const wpnH = 34;
+
+  // Bottom edge for controls = above weapon bar background (h - 100)
+  const controlsBottom = h - 104;
+
+  // Move buttons (left side, vertically centered, shifted right to avoid commentator)
+  // Commentator occupies x 0..76 roughly, so start at x=80
+  const moveBaseX = 80;
+  const moveY = controlsBottom - btnSize;
+  touchButtons.push({
+    id: "left", x: moveBaseX, y: moveY, w: btnSize, h: btnSize,
+    shape: "rect", label: "\u25C4", key: "ArrowLeft",
+  });
+  touchButtons.push({
+    id: "right", x: moveBaseX + btnSize + gap, y: moveY, w: btnSize, h: btnSize,
+    shape: "rect", label: "\u25BA", key: "ArrowRight",
+  });
+
+  // Fire + Aim (right side, above weapon bar)
+  // Fire circle sits just above controlsBottom
+  const fireCx = w - margin - fireR;
+  const fireCy = controlsBottom - fireR;
+  touchButtons.push({
+    id: "fire", x: fireCx - fireR, y: fireCy - fireR, w: fireR * 2, h: fireR * 2,
+    shape: "circle", label: "\uD83D\uDD25", key: "Space", r: fireR,
+    cx: fireCx, cy: fireCy,
+  });
+  // Aim buttons stacked to the LEFT of fire
+  const aimX = fireCx - fireR - gap - btnSize;
+  touchButtons.push({
+    id: "aimup", x: aimX, y: fireCy - btnSize - gap / 2,
+    w: btnSize, h: btnSize, shape: "rect", label: "\u25B2", key: "ArrowUp",
+  });
+  touchButtons.push({
+    id: "aimdown", x: aimX, y: fireCy + gap / 2,
+    w: btnSize, h: btnSize, shape: "rect", label: "\u25BC", key: "ArrowDown",
+  });
+
+  // Weapon prev/next (flanking the weapon bar)
+  const slotW = 70;
+  const slotGap = 6;
+  const totalW = weapons.length * slotW + (weapons.length - 1) * slotGap;
+  const barStartX = (w - totalW) / 2;
+  const barY = h - 44 - 50;
+  touchButtons.push({
+    id: "wpnprev", x: barStartX - wpnW - gap, y: barY + (44 - wpnH) / 2,
+    w: wpnW, h: wpnH, shape: "rect", label: "\u25C0", key: "wpnprev",
+  });
+  touchButtons.push({
+    id: "wpnnext", x: barStartX + totalW + gap, y: barY + (44 - wpnH) / 2,
+    w: wpnW, h: wpnH, shape: "rect", label: "\u25B6", key: "wpnnext",
+  });
+}
+
+function getTouchedButton(tx, ty) {
+  for (const btn of touchButtons) {
+    if (btn.shape === "circle") {
+      const dx = tx - btn.cx;
+      const dy = ty - btn.cy;
+      if (dx * dx + dy * dy <= btn.r * btn.r) return btn;
+    } else {
+      if (tx >= btn.x && tx <= btn.x + btn.w && ty >= btn.y && ty <= btn.y + btn.h) return btn;
+    }
+  }
+  return null;
+}
+
+function touchActionDown(btn) {
+  if (!btn) return;
+  if (btn.key === "wpnprev") {
+    setWeapon(state.weaponIndex - 1);
+    return;
+  }
+  if (btn.key === "wpnnext") {
+    setWeapon(state.weaponIndex + 1);
+    return;
+  }
+  if (btn.key === "Space") {
+    if (!state.charging && state.projectiles.length === 0 && !state.gameOver) {
+      state.charging = true;
+      state.charge = 0;
+      state.chargeDir = 1;
+      updateHud();
+    }
+    return;
+  }
+  const keyMap = { ArrowLeft: "ArrowLeft", ArrowRight: "ArrowRight", ArrowUp: "ArrowUp", ArrowDown: "ArrowDown" };
+  if (keyMap[btn.key]) keys.add(btn.key);
+}
+
+function touchActionUp(btn) {
+  if (!btn) return;
+  if (btn.key === "wpnprev" || btn.key === "wpnnext") return;
+  if (btn.key === "Space") {
+    if (state.charging && state.projectiles.length === 0 && !state.gameOver) {
+      const worm = state.worms[state.currentIndex];
+      const weapon = getCurrentWeapon();
+      fireProjectile(worm, state.charge, weapon);
+    }
+    state.charging = false;
+    state.chargeDir = 1;
+    state.charge = 0;
+    updateHud();
+    return;
+  }
+  keys.delete(btn.key);
+}
+
+function initTouchControls() {
+  updateTouchLayout();
+
+  canvas.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = state.width / rect.width;
+    const scaleY = state.height / rect.height;
+    for (const touch of e.changedTouches) {
+      const tx = (touch.clientX - rect.left) * scaleX;
+      const ty = (touch.clientY - rect.top) * scaleY;
+      const btn = getTouchedButton(tx, ty);
+      if (btn) {
+        activeTouches.set(touch.identifier, btn.id);
+        touchActionDown(btn);
+      } else {
+        // Check weapon bar slots
+        for (const slot of hudWeaponSlots) {
+          if (tx >= slot.x && tx <= slot.x + slot.w && ty >= slot.y && ty <= slot.y + slot.h) {
+            setWeapon(slot.index);
+            break;
+          }
+        }
+      }
+      // Handle game over restart tap
+      if (state.gameOver) {
+        if (!net.enabled) resetGame();
+      }
+    }
+  }, { passive: false });
+
+  canvas.addEventListener("touchmove", (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = state.width / rect.width;
+    const scaleY = state.height / rect.height;
+    for (const touch of e.changedTouches) {
+      const tx = (touch.clientX - rect.left) * scaleX;
+      const ty = (touch.clientY - rect.top) * scaleY;
+      const prevId = activeTouches.get(touch.identifier);
+      const btn = getTouchedButton(tx, ty);
+      const newId = btn ? btn.id : null;
+      if (prevId !== newId) {
+        // Finger moved off previous button
+        if (prevId) {
+          const prevBtn = touchButtons.find((b) => b.id === prevId);
+          touchActionUp(prevBtn);
+        }
+        // Finger moved onto new button
+        if (btn) {
+          activeTouches.set(touch.identifier, btn.id);
+          touchActionDown(btn);
+        } else {
+          activeTouches.delete(touch.identifier);
+        }
+      }
+    }
+  }, { passive: false });
+
+  const handleTouchEnd = (e) => {
+    e.preventDefault();
+    for (const touch of e.changedTouches) {
+      const btnId = activeTouches.get(touch.identifier);
+      if (btnId) {
+        const btn = touchButtons.find((b) => b.id === btnId);
+        touchActionUp(btn);
+        activeTouches.delete(touch.identifier);
+      }
+    }
+  };
+
+  canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
+  canvas.addEventListener("touchcancel", handleTouchEnd, { passive: false });
+}
+
+function drawTouchControls() {
+  ctx.save();
+  for (const btn of touchButtons) {
+    const isPressed = [...activeTouches.values()].includes(btn.id);
+
+    if (btn.shape === "circle") {
+      ctx.beginPath();
+      ctx.arc(btn.cx, btn.cy, btn.r, 0, Math.PI * 2);
+      ctx.fillStyle = isPressed ? "rgba(255,100,50,0.45)" : "rgba(0,0,0,0.35)";
+      ctx.fill();
+      ctx.strokeStyle = isPressed ? "rgba(255,180,100,0.7)" : "rgba(255,255,255,0.3)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.font = `${Math.round(btn.r * 0.8)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#fff";
+      ctx.fillText(btn.label, btn.cx, btn.cy);
+    } else {
+      const r = 8;
+      ctx.fillStyle = isPressed ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.35)";
+      drawRoundedRect(btn.x, btn.y, btn.w, btn.h, r);
+      ctx.fill();
+      ctx.strokeStyle = isPressed ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.2)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      const fontSize = btn.id.startsWith("wpn") ? Math.round(btn.h * 0.45) : Math.round(btn.h * 0.5);
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = isPressed ? "#fff" : "rgba(255,255,255,0.85)";
+      ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
+    }
+  }
+  ctx.restore();
+}
+
 function drawHud() {
   drawTeamBanners();
   drawTurnTimer();
@@ -2839,6 +3087,7 @@ function drawHud() {
   drawWeaponBar();
   drawStatusBar();
   drawCommentary();
+  if (isMobile) drawTouchControls();
 }
 
 function render() {
@@ -2869,7 +3118,7 @@ function render() {
     ctx.textAlign = "center";
     ctx.fillText(`Ganador: ${state.winner}`, state.width / 2, state.height / 2);
     ctx.font = "16px Trebuchet MS";
-    ctx.fillText("Pulsa R para reiniciar", state.width / 2, state.height / 2 + 30);
+    ctx.fillText(isMobile ? "Toca para reiniciar" : "Pulsa R para reiniciar", state.width / 2, state.height / 2 + 30);
   }
 }
 
@@ -3049,4 +3298,6 @@ function bindInput(phaserScene) {
 
     handleKeyUp(event);
   });
+
+  if (isMobile) initTouchControls();
 }
