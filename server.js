@@ -1,84 +1,15 @@
 const { WebSocketServer } = require("ws");
+const {
+  GAME_WIDTH, GAME_HEIGHT, config, weapons,
+  clamp, getAimBounds, createRng, seededRand,
+  terrainHeightAt, makeWorm, updateWorm
+} = require("./src/game");
 
 const PORT = Number(process.env.PORT || 8080);
 const wss = new WebSocketServer({ port: PORT });
 
-const GAME_WIDTH = 1280;
-const GAME_HEIGHT = 720;
 const TICK_RATE = 30;
-
 const WIND_SCALE = 20;
-
-const config = {
-  gravity: 900,
-  moveSpeed: 90,
-  angleSpeed: 90,
-  wormRadius: 12,
-  chargeRate: 0.9,
-};
-
-const weapons = [
-  {
-    id: "bazooka",
-    name: "Bazooka",
-    minSpeed: 400,
-    maxSpeed: 1200,
-    explosionRadius: 55,
-    maxDamage: 60,
-    bounciness: 0,
-    fuse: 0,
-    gravityScale: 0.9,
-  },
-  {
-    id: "grenade",
-    name: "Granada",
-    minSpeed: 400,
-    maxSpeed: 1200,
-    explosionRadius: 70,
-    maxDamage: 75,
-    bounciness: 0.45,
-    fuse: 6.6,
-    gravityScale: 0.9,
-  },
-  {
-    id: "mortar",
-    name: "Mortero",
-    minSpeed: 400,
-    maxSpeed: 1200,
-    explosionRadius: 85,
-    maxDamage: 90,
-    bounciness: 0,
-    fuse: 0,
-    gravityScale: 0.9,
-  },
-  {
-    id: "sniper",
-    name: "Sniper",
-    minSpeed: 400,
-    maxSpeed: 1200,
-    explosionRadius: 26,
-    maxDamage: 85,
-    bounciness: 0,
-    fuse: 0,
-    gravityScale: 0.9,
-    projectileRadius: 3,
-  },
-  {
-    id: "pistol",
-    name: "Pistola x3",
-    minSpeed: 400,
-    maxSpeed: 1200,
-    explosionRadius: 18,
-    maxDamage: 22,
-    bounciness: 0,
-    fuse: 0,
-    gravityScale: 0.9,
-    projectileRadius: 3,
-    burst: 3,
-    burstSpread: 6,
-    burstSpeedJitter: 0.04,
-  },
-];
 
 let seed = Math.floor(Math.random() * 1e9);
 let nextId = 1;
@@ -104,39 +35,6 @@ const state = {
   turnTimer: 30,
   turnTimerMax: 30,
 };
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function getAimBounds(team) {
-  if (team === "Rojo") {
-    return { min: -15, max: 165 };
-  }
-  if (team === "Azul") {
-    return { min: 15, max: 195 };
-  }
-  return { min: 15, max: 165 };
-}
-
-function createRng(seedValue) {
-  let t = seedValue >>> 0;
-  return () => {
-    t += 0x6d2b79f5;
-    let r = Math.imul(t ^ (t >>> 15), 1 | t);
-    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
-    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function seededRand(rng, min, max) {
-  return rng() * (max - min) + min;
-}
-
-function terrainHeightAt(x) {
-  const xi = Math.floor(clamp(x, 0, state.width - 1));
-  return state.terrain[xi] ?? state.height;
-}
 
 function flattenRange(x0, x1, y) {
   const start = Math.floor(clamp(x0, 0, state.width));
@@ -255,24 +153,6 @@ function buildTerrain() {
   state.mapName = generateMapName(rng);
 }
 
-function makeWorm({ id, name, team, color, x }) {
-  const y = terrainHeightAt(x) - config.wormRadius;
-  return {
-    id,
-    name,
-    team,
-    color,
-    x,
-    y,
-    vx: 0,
-    vy: 0,
-    angle: team === "Rojo" ? 45 : 135,
-    health: 100,
-    alive: true,
-    onGround: true,
-  };
-}
-
 function createWorms() {
   const left = [state.width * 0.2, state.width * 0.3];
   const right = [state.width * 0.7, state.width * 0.82];
@@ -285,7 +165,7 @@ function createWorms() {
       team: "Rojo",
       color: "#ef476f",
       x,
-    }));
+    }, state.terrain, state.width, state.height));
   });
 
   right.forEach((x, index) => {
@@ -295,7 +175,7 @@ function createWorms() {
       team: "Azul",
       color: "#118ab2",
       x,
-    }));
+    }, state.terrain, state.width, state.height));
   });
 
   state.worms = worms;
@@ -347,53 +227,6 @@ function nextTurn() {
   state.charging = false;
   state.turnTimer = state.turnTimerMax;
   pressed.clear();
-}
-
-function updateWorm(worm, dt, isActive) {
-  if (!worm.alive) return;
-
-  if (isActive && state.projectiles.length === 0) {
-    const left = pressed.has("ArrowLeft");
-    const right = pressed.has("ArrowRight");
-    const up = pressed.has("ArrowUp");
-    const down = pressed.has("ArrowDown");
-
-    if (left !== right) {
-      const dir = left ? -1 : 1;
-      worm.x += dir * config.moveSpeed * dt;
-      worm.x = clamp(worm.x, config.wormRadius, state.width - config.wormRadius);
-    }
-
-    if (up !== down) {
-      const dir = up ? 1 : -1;
-      worm.angle += dir * config.angleSpeed * dt;
-      const bounds = getAimBounds(worm.team);
-      worm.angle = clamp(worm.angle, bounds.min, bounds.max);
-    }
-  }
-
-  if (!worm.onGround || Math.abs(worm.vx) > 1) {
-    worm.x += worm.vx * dt;
-    worm.x = clamp(worm.x, config.wormRadius, state.width - config.wormRadius);
-    worm.vx *= worm.onGround ? 0.8 : 0.99;
-  }
-
-  const ground = terrainHeightAt(worm.x) - config.wormRadius;
-  if (worm.y < ground - 1) {
-    worm.onGround = false;
-  }
-
-  if (!worm.onGround) {
-    worm.vy += config.gravity * dt;
-    worm.y += worm.vy * dt;
-  }
-
-  const groundY = terrainHeightAt(worm.x) - config.wormRadius;
-  if (worm.y >= groundY) {
-    worm.y = groundY;
-    worm.vy = 0;
-    worm.onGround = true;
-  }
 }
 
 function addProjectile(params) {
@@ -456,9 +289,9 @@ function updateProjectiles(dt) {
       return;
     }
 
-    if (p.y >= terrainHeightAt(p.x)) {
+    if (p.y >= terrainHeightAt(p.x, state.terrain, state.width, state.height)) {
       if (p.bounciness > 0 && p.bounces < 3 && p.timer > 0.05) {
-        p.y = terrainHeightAt(p.x) - 2;
+        p.y = terrainHeightAt(p.x, state.terrain, state.width, state.height) - 2;
         p.vy = -Math.abs(p.vy) * p.bounciness;
         p.vx *= 0.8;
         p.bounces += 1;
@@ -564,7 +397,7 @@ function step(dt) {
   if (state.gameOver) return;
   state.worms.forEach((worm, index) => {
     const isActive = index === state.currentIndex && worm.alive;
-    updateWorm(worm, dt, isActive);
+    updateWorm(worm, dt, isActive && state.projectiles.length === 0, pressed, state.terrain, state.width, state.height);
   });
   updateProjectiles(dt);
   updateCharge(dt);

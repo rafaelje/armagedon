@@ -10,6 +10,7 @@
     "ws": "^8.16.0"
   },
   "devDependencies": {
-    "firebase-tools": "^13.25.1"
+    "firebase-tools": "^13.25.1",
+    "jest": "^30.2.0"
   }
 }
