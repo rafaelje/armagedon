@@ -41,6 +41,10 @@ const state = {
   aiPlan: null,
   explosions: [],
   wind: 0,
+  clouds: [],
+  windGusts: [],
+  gustTimer: 0,
+  gustExtra: 0,
   seed: 0,
   turnTimer: 30,
   turnTimerMax: 30,
@@ -311,17 +315,6 @@ function buildBackground() {
   drawMountainLayer(gctx, rng, state.height * 0.62, state.height * 0.18, "#5f7ea8", 0.35);
   drawMountainLayer(gctx, rng, state.height * 0.7, state.height * 0.24, "#4c6d94", 0.55);
 
-  gctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-  for (let i = 0; i < 4; i += 1) {
-    const x = seededRand(rng, state.width * 0.1, state.width * 0.9);
-    const y = seededRand(rng, state.height * 0.08, state.height * 0.38);
-    const w = seededRand(rng, 80, 140);
-    const h = seededRand(rng, 24, 40);
-    gctx.beginPath();
-    gctx.ellipse(x, y, w, h, 0, 0, Math.PI * 2);
-    gctx.fill();
-  }
-
   visuals.bgCanvas = bg;
 }
 
@@ -574,6 +567,7 @@ function resetGame(seedOverride) {
   createWorms();
   updateHud();
   state.wind = Math.floor(rand(-5, 5));
+  initClouds();
   const worm = state.worms[state.currentIndex];
   if (worm) {
     sayComment("turn", { name: `${worm.name} — Mapa: ${state.mapName}` });
@@ -647,6 +641,7 @@ function updateHealthPacks(dt) {
     if (!pack.grounded) {
       pack.y += pack.fallSpeed * dt;
       pack.x += Math.sin(pack.age * 2.5 + pack.swayPhase) * 15 * dt;
+      pack.x += getEffectiveWind() * 12 * dt;
       pack.x = clamp(pack.x, 5, state.width - 5);
       const groundY = terrainHeightAt(pack.x);
       if (pack.y >= groundY - 12) {
@@ -1113,7 +1108,7 @@ function simulateShot(startX, startY, angle, power, weapon, targets) {
   const blastR = weapon.explosionRadius || 40;
 
   for (let t = 0; t < aiConfig.simMaxTime; t += aiConfig.simStep) {
-    vx += state.wind * WIND_SCALE * aiConfig.simStep;
+    vx += getEffectiveWind() * WIND_SCALE * aiConfig.simStep;
     vy += gravity * aiConfig.simStep;
     x += vx * aiConfig.simStep;
     y += vy * aiConfig.simStep;
@@ -1280,7 +1275,7 @@ function updateProjectiles(dt) {
   const next = [];
 
   state.projectiles.forEach((p) => {
-    p.vx += state.wind * WIND_SCALE * dt;
+    p.vx += getEffectiveWind() * WIND_SCALE * dt;
     p.vy += p.gravity * dt;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
@@ -1506,7 +1501,7 @@ function drawTrajectory() {
   const step = 0.06;
   const maxTime = 2.6;
   for (let t = 0; t < maxTime; t += step) {
-    vx += state.wind * WIND_SCALE * step;
+    vx += getEffectiveWind() * WIND_SCALE * step;
     vy += gravity * step;
     x += vx * step;
     y += vy * step;
@@ -1776,129 +1771,217 @@ function drawWorm(worm, isCurrent) {
   const rad = (worm.angle * Math.PI) / 180;
   const facingRight = Math.cos(rad) >= 0;
   const fd = facingRight ? 1 : -1;
+  const isRojo = worm.team === "Rojo";
 
-  // Shadow
-  ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+  // --- Shadow (more pronounced) ---
+  ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
   ctx.beginPath();
-  ctx.ellipse(worm.x, worm.y + r + 3, r * 0.85, 3.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(worm.x, worm.y + r + 4, r * 0.95, 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Tail (small bump behind the body)
-  ctx.fillStyle = worm.color;
-  ctx.beginPath();
-  ctx.ellipse(worm.x - fd * r * 0.7, worm.y + 4, 5, 4, -fd * 0.3, 0, Math.PI * 2);
-  ctx.fill();
+  // --- Boots (2 small rounded rects at the base) ---
+  const bootW = 6, bootH = 5, bootGap = 3;
+  const bootY = worm.y + r * 0.95;
+  for (let side = -1; side <= 1; side += 2) {
+    const bx = worm.x + side * bootGap - bootW / 2;
+    // Sole (darker)
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.roundRect(bx, bootY + bootH - 2, bootW, 2.5, 1);
+    ctx.fill();
+    // Boot body
+    ctx.fillStyle = "#333";
+    ctx.beginPath();
+    ctx.roundRect(bx, bootY, bootW, bootH, [2, 2, 1, 1]);
+    ctx.fill();
+    // Boot outline
+    ctx.strokeStyle = "#222";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(bx, bootY, bootW, bootH + 0.5, [2, 2, 1, 1]);
+    ctx.stroke();
+  }
 
-  // Body - oval, slightly taller than wide
+  // --- Body (chunky ellipse with thick cartoon outline) ---
+  const bodyW = r * 1.0;
+  const bodyH = r * 1.2;
   const bodyGrad = ctx.createRadialGradient(
-    worm.x + fd * 2, worm.y - 5, 2,
-    worm.x, worm.y, r + 1
+    worm.x + fd * 3, worm.y - 6, 2,
+    worm.x, worm.y, r * 1.25
   );
-  bodyGrad.addColorStop(0, "rgba(255, 255, 255, 0.5)");
-  bodyGrad.addColorStop(0.4, worm.color);
-  bodyGrad.addColorStop(1, "rgba(0, 0, 0, 0.3)");
+  bodyGrad.addColorStop(0, "rgba(255, 255, 255, 0.45)");
+  bodyGrad.addColorStop(0.35, worm.color);
+  bodyGrad.addColorStop(1, isRojo ? "#a82040" : "#0a6a8f");
   ctx.fillStyle = bodyGrad;
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.3)";
-  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.ellipse(worm.x, worm.y, r * 0.9, r * 1.15, 0, 0, Math.PI * 2);
+  ctx.ellipse(worm.x, worm.y, bodyW, bodyH, 0, 0, Math.PI * 2);
   ctx.fill();
+
+  // Thick cartoon outline
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(worm.x, worm.y, bodyW, bodyH, 0, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Belly highlight
-  ctx.fillStyle = "rgba(255, 255, 255, 0.13)";
+  // Belly highlight (more visible)
+  ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
   ctx.beginPath();
-  ctx.ellipse(worm.x + fd * 1, worm.y + 3, r * 0.5, r * 0.3, 0, 0, Math.PI * 2);
+  ctx.ellipse(worm.x + fd * 1.5, worm.y + 4, r * 0.55, r * 0.32, 0.1 * fd, 0, Math.PI * 2);
   ctx.fill();
 
-  // Headband
-  const bandColor = worm.team === "Rojo" ? "#a93226" : "#1a5276";
-  const bandY = worm.y - r * 0.75;
-  ctx.fillStyle = bandColor;
+  // --- Military Helmet ---
+  const helmetColor = isRojo ? "#a93226" : "#1a5276";
+  const helmetRim = isRojo ? "#7b241c" : "#113d5a";
+  const helmetY = worm.y - bodyH * 0.55;
+  const helmetW = r * 0.85;
+  const helmetH = r * 0.55;
+
+  // Helmet dome (squashed semicircle)
+  ctx.fillStyle = helmetColor;
   ctx.beginPath();
-  ctx.ellipse(worm.x, bandY, r * 0.65, 3.5, 0, Math.PI, 0);
-  ctx.fill();
-  // Knot on the side
-  ctx.beginPath();
-  ctx.ellipse(worm.x - fd * r * 0.55, bandY + 1, 3, 2.5, -fd * 0.5, 0, Math.PI * 2);
+  ctx.ellipse(worm.x, helmetY, helmetW, helmetH, 0, Math.PI, 0);
   ctx.fill();
 
-  // Eyes
-  const eyeCenterX = worm.x + fd * 3.5;
-  const eyeY = worm.y - 2.5;
-  const eyeGap = 3.2;
+  // Helmet rim (thicker band at the base)
+  ctx.fillStyle = helmetRim;
+  ctx.beginPath();
+  ctx.ellipse(worm.x, helmetY, helmetW * 1.08, 3.5, 0, Math.PI, 0);
+  ctx.fill();
+  ctx.fillStyle = helmetRim;
+  ctx.fillRect(worm.x - helmetW * 1.08, helmetY - 3.5, helmetW * 2.16, 4);
+
+  // Helmet outline
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(worm.x, helmetY, helmetW, helmetH, 0, Math.PI, 0);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(worm.x - helmetW * 1.08, helmetY);
+  ctx.lineTo(worm.x + helmetW * 1.08, helmetY);
+  ctx.stroke();
+
+  // Helmet shine/highlight
+  ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
+  ctx.beginPath();
+  ctx.ellipse(worm.x - helmetW * 0.25, helmetY - helmetH * 0.4, helmetW * 0.3, helmetH * 0.25, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Eyes (big, expressive) ---
+  const eyeCenterX = worm.x + fd * 4;
+  const eyeY = worm.y - 2;
+  const eyeGap = 4;
   const eye1x = eyeCenterX - eyeGap * fd;
   const eye2x = eyeCenterX + eyeGap * fd;
+  const eyeRx = 4, eyeRy = 4.8;
 
   // Eye whites
-  ctx.fillStyle = "#f0f0f0";
-  ctx.strokeStyle = "rgba(0,0,0,0.2)";
-  ctx.lineWidth = 0.5;
+  ctx.fillStyle = "#f5f5f5";
   ctx.beginPath();
-  ctx.ellipse(eye1x, eyeY, 3, 3.8, 0, 0, Math.PI * 2);
+  ctx.ellipse(eye1x, eyeY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(eye2x, eyeY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eye outlines
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(eye1x, eyeY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
   ctx.stroke();
   ctx.beginPath();
-  ctx.ellipse(eye2x, eyeY, 3, 3.8, 0, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.ellipse(eye2x, eyeY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
   ctx.stroke();
 
   // Pupils - follow aim direction
-  const pShift = 1.2;
+  const pShift = 1.8;
   const pDx = Math.cos(rad) * pShift;
   const pDy = -Math.sin(rad) * pShift;
-  ctx.fillStyle = "#1a1a1a";
+  const pupilR = 2.2;
+  ctx.fillStyle = "#111";
   ctx.beginPath();
-  ctx.arc(eye1x + pDx, eyeY + pDy, 1.6, 0, Math.PI * 2);
+  ctx.arc(eye1x + pDx, eyeY + pDy, pupilR, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(eye2x + pDx, eyeY + pDy, 1.6, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Eye shine
-  ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.beginPath();
-  ctx.arc(eye1x - 0.8, eyeY - 1.5, 0.8, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(eye2x - 0.8, eyeY - 1.5, 0.8, 0, Math.PI * 2);
+  ctx.arc(eye2x + pDx, eyeY + pDy, pupilR, 0, Math.PI * 2);
   ctx.fill();
 
-  // Eyebrows
+  // Eye shine (bigger, more noticeable)
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(eye1x - 1, eyeY - 1.8, 1.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(eye2x - 1, eyeY - 1.8, 1.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Eyebrows (expressive) ---
+  ctx.strokeStyle = "#2c1810";
+  ctx.lineCap = "round";
   if (isCurrent) {
-    ctx.strokeStyle = "rgba(40, 20, 10, 0.7)";
+    // Angry/determined eyebrows
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(eye1x - 4, eyeY - 6);
+    ctx.lineTo(eye1x + 3, eyeY - 7.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(eye2x - 3, eyeY - 7.5);
+    ctx.lineTo(eye2x + 4, eyeY - 6);
+    ctx.stroke();
+  } else {
+    // Neutral subtle eyebrows
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(eye1x - 3.5, eyeY - 6.5);
+    ctx.lineTo(eye1x + 3, eyeY - 6.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(eye2x - 3, eyeY - 6.5);
+    ctx.lineTo(eye2x + 3.5, eyeY - 6.5);
+    ctx.stroke();
+  }
+
+  // --- Mouth ---
+  const mouthX = worm.x + fd * 3.5;
+  const mouthY = worm.y + 7;
+  if (isCurrent) {
+    // Determined grin with teeth
+    ctx.strokeStyle = "#3a1a0a";
     ctx.lineWidth = 1.5;
     ctx.lineCap = "round";
     ctx.beginPath();
-    ctx.moveTo(eye1x - 3, eyeY - 5.5);
-    ctx.lineTo(eye1x + 2.5, eyeY - 6.5);
+    ctx.arc(mouthX, mouthY, 4, 0.1, Math.PI - 0.1);
     ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(eye2x - 2.5, eyeY - 6.5);
-    ctx.lineTo(eye2x + 3, eyeY - 5.5);
-    ctx.stroke();
-  }
-
-  // Mouth
-  ctx.strokeStyle = "rgba(50, 25, 15, 0.5)";
-  ctx.lineWidth = 1;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  if (isCurrent) {
-    ctx.arc(worm.x + fd * 3, worm.y + 5.5, 3, 0.15, Math.PI - 0.15);
+    // Teeth (2-3 small white rectangles)
+    ctx.fillStyle = "#fff";
+    for (let t = -1; t <= 1; t++) {
+      ctx.fillRect(mouthX + t * 2.5 - 1, mouthY, 2, 2.2);
+    }
+    // Teeth outline
+    ctx.strokeStyle = "#3a1a0a";
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(mouthX - 3.5, mouthY, 7, 2.2);
   } else {
-    ctx.moveTo(worm.x + fd * 1, worm.y + 5.5);
-    ctx.lineTo(worm.x + fd * 5, worm.y + 5.5);
+    // Neutral line
+    ctx.strokeStyle = "#3a1a0a";
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(mouthX - 3, mouthY);
+    ctx.lineTo(mouthX + 3, mouthY);
+    ctx.stroke();
   }
-  ctx.stroke();
 
-  // HP label
+  // --- HP label (same logic) ---
   const hpText = `${worm.health}`;
   ctx.font = "bold 10px Trebuchet MS";
   ctx.textAlign = "center";
   const textWidth = ctx.measureText(hpText).width;
   const labelX = worm.x - textWidth / 2 - 5;
-  const labelY = worm.y - r * 1.15 - 20;
+  const labelY = worm.y - bodyH - 22;
   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
   const labelW = textWidth + 10;
   const labelH = 14;
@@ -2112,12 +2195,213 @@ function drawTurnTimer() {
   ctx.restore();
 }
 
+// ==================== Animated Clouds ====================
+
+function initClouds() {
+  state.clouds = [];
+  state.windGusts = [];
+  state.gustExtra = 0;
+  state.gustTimer = 15 + Math.random() * 25;
+  const count = 6 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < count; i++) {
+    state.clouds.push(createCloud(true));
+  }
+}
+
+function createCloud(initial) {
+  const w = state.width;
+  const h = state.height;
+  const cloudW = 60 + Math.random() * 100;
+  const puffs = [];
+  const puffCount = 3 + Math.floor(Math.random() * 3);
+  for (let p = 0; p < puffCount; p++) {
+    puffs.push({
+      ox: (p - (puffCount - 1) / 2) * (cloudW / puffCount) * 0.7 + (Math.random() - 0.5) * 10,
+      oy: (Math.random() - 0.5) * 12,
+      rx: 18 + Math.random() * 22,
+      ry: 12 + Math.random() * 10,
+    });
+  }
+  return {
+    x: initial ? Math.random() * w : (Math.random() > 0.5 ? -cloudW : w + cloudW),
+    y: h * 0.06 + Math.random() * h * 0.28,
+    speed: 8 + Math.random() * 15,
+    alpha: 0.35 + Math.random() * 0.3,
+    puffs: puffs,
+    width: cloudW,
+    depth: 0.5 + Math.random() * 0.5,
+  };
+}
+
+function updateClouds(dt) {
+  const windDrift = getEffectiveWind() * 3;
+  for (let i = state.clouds.length - 1; i >= 0; i--) {
+    const c = state.clouds[i];
+    c.x += (c.speed + windDrift * c.depth) * dt;
+    // Wrap around
+    if (c.x - c.width > state.width + 50) {
+      state.clouds[i] = createCloud(false);
+      state.clouds[i].x = -state.clouds[i].width;
+    } else if (c.x + c.width < -50) {
+      state.clouds[i] = createCloud(false);
+      state.clouds[i].x = state.width + state.clouds[i].width;
+    }
+  }
+}
+
+function drawClouds() {
+  ctx.save();
+  for (const c of state.clouds) {
+    ctx.globalAlpha = c.alpha;
+    for (const p of c.puffs) {
+      const grad = ctx.createRadialGradient(
+        c.x + p.ox, c.y + p.oy, 2,
+        c.x + p.ox, c.y + p.oy, p.rx
+      );
+      grad.addColorStop(0, "rgba(255, 255, 255, 0.9)");
+      grad.addColorStop(0.6, "rgba(255, 255, 255, 0.5)");
+      grad.addColorStop(1, "rgba(255, 255, 255, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(c.x + p.ox, c.y + p.oy, p.rx, p.ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// ==================== Wind Gusts (comic style) ====================
+
+function updateWindGusts(dt) {
+  state.gustTimer -= dt;
+  if (state.gustTimer <= 0) {
+    state.gustTimer = 20 + Math.random() * 40;
+    spawnWindGust();
+  }
+  // Compute gustExtra from active gusts
+  let extra = 0;
+  for (let i = state.windGusts.length - 1; i >= 0; i--) {
+    const g = state.windGusts[i];
+    g.life -= dt;
+    if (g.life <= 0) {
+      state.windGusts.splice(i, 1);
+      continue;
+    }
+    g.progress = 1 - g.life / g.maxLife;
+    // Ramp: ease-in 20%, full middle, ease-out 20%
+    let intensity = 1;
+    if (g.progress < 0.2) intensity = g.progress / 0.2;
+    else if (g.progress > 0.8) intensity = (1 - g.progress) / 0.2;
+    extra += g.extraWind * intensity;
+    for (const line of g.lines) {
+      line.x += g.dir * g.speed * dt;
+    }
+  }
+  state.gustExtra = extra;
+}
+
+function getEffectiveWind() {
+  return state.wind + state.gustExtra;
+}
+
+function spawnWindGust() {
+  // Direction follows the current wind; if wind is 0 pick random
+  const w = state.wind;
+  const dir = w > 0 ? 1 : w < 0 ? -1 : (Math.random() > 0.5 ? 1 : -1);
+  const gustStrength = 3 + Math.random() * 5;
+
+  const lineCount = 8 + Math.floor(Math.random() * 8);
+  const lines = [];
+  const startX = dir > 0 ? -50 : state.width + 50;
+  const bandY = state.height * 0.15 + Math.random() * state.height * 0.5;
+  const bandH = 80 + Math.random() * 120;
+  for (let i = 0; i < lineCount; i++) {
+    lines.push({
+      x: startX + (Math.random() - 0.5) * 60,
+      y: bandY + Math.random() * bandH - bandH / 2,
+      len: 30 + Math.random() * 60,
+      thickness: 1 + Math.random() * 2,
+      alpha: 0.3 + Math.random() * 0.4,
+      waveSeed: Math.random() * Math.PI * 2,
+    });
+  }
+
+  const duration = 1 + Math.random() * 3; // 1-4 seconds
+  state.windGusts.push({
+    dir: dir,
+    speed: 250 + Math.random() * 200,
+    lines: lines,
+    life: duration,
+    maxLife: duration,
+    progress: 0,
+    extraWind: dir * gustStrength,
+  });
+}
+
+function drawWindGusts() {
+  ctx.save();
+  ctx.lineCap = "round";
+  for (const g of state.windGusts) {
+    const fadeIn = Math.min(1, g.progress * 4);
+    const fadeOut = Math.min(1, g.life / 0.5);
+    const opacity = fadeIn * fadeOut;
+    for (const line of g.lines) {
+      const wave = Math.sin(line.waveSeed + g.progress * 6) * 3;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${line.alpha * opacity})`;
+      ctx.lineWidth = line.thickness;
+      ctx.beginPath();
+      ctx.moveTo(line.x, line.y + wave);
+      ctx.quadraticCurveTo(
+        line.x + g.dir * line.len * 0.5, line.y + wave - 2,
+        line.x + g.dir * line.len, line.y + wave + 1
+      );
+      ctx.stroke();
+
+      // Comic-style small swoosh marks
+      if (line.thickness > 1.5) {
+        ctx.strokeStyle = `rgba(220, 235, 255, ${line.alpha * opacity * 0.6})`;
+        ctx.lineWidth = 0.8;
+        const mx = line.x + g.dir * line.len * 0.3;
+        const my = line.y + wave;
+        ctx.beginPath();
+        ctx.moveTo(mx, my - 4);
+        ctx.lineTo(mx + g.dir * 8, my - 3);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(mx, my + 4);
+        ctx.lineTo(mx + g.dir * 8, my + 3);
+        ctx.stroke();
+      }
+    }
+
+    // Comic "WHOOSH" text during peak
+    if (g.progress > 0.2 && g.progress < 0.6) {
+      const textOpacity = opacity * 0.5;
+      const centerX = state.width / 2 + g.dir * 50;
+      const centerY = g.lines[0] ? g.lines[0].y - 20 : state.height * 0.3;
+      ctx.save();
+      ctx.font = "bold italic 18px Trebuchet MS";
+      ctx.textAlign = "center";
+      ctx.fillStyle = `rgba(255, 255, 255, ${textOpacity})`;
+      ctx.strokeStyle = `rgba(0, 0, 0, ${textOpacity * 0.5})`;
+      ctx.lineWidth = 2;
+      const angle = g.dir * -0.08;
+      ctx.translate(centerX, centerY);
+      ctx.rotate(angle);
+      ctx.strokeText("WHOOSH!", 0, 0);
+      ctx.fillText("WHOOSH!", 0, 0);
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
 function drawWindIndicator() {
   const cx = state.width / 2;
   const wy = 50;
-  const wind = state.wind;
+  const wind = getEffectiveWind();
   const absWind = Math.abs(wind);
-  const maxWind = 5;
+  const maxWind = 8;
 
   ctx.save();
   const bgW = 130;
@@ -2567,6 +2851,8 @@ function render() {
   const scaleY = canvas.height / state.height;
   ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
   drawBackground();
+  drawClouds();
+  drawWindGusts();
   drawTerrain();
   drawTrajectory();
   state.worms.forEach((worm, index) => drawWorm(worm, index === state.currentIndex));
@@ -2605,6 +2891,8 @@ function step(dt) {
   const cdt = Math.min(0.033, dt);
   if (commentaryState.timer > 0) commentaryState.timer -= cdt;
   if (commentaryState.popTimer > 0) commentaryState.popTimer -= cdt;
+  updateClouds(cdt);
+  updateWindGusts(cdt);
   if (net.enabled) {
     updateExplosions(cdt);
     return;
