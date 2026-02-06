@@ -1,18 +1,12 @@
 let canvas = null;
 let ctx = null;
 
-const hudTurn = document.getElementById("turn");
-const hudPower = document.getElementById("power");
-const hudWeapon = document.getElementById("weapon");
-const hudWind = document.getElementById("wind");
-const hudBadge = document.getElementById("turnbadge");
-const powerBar = document.getElementById("powerbar");
-const powerFill = document.getElementById("powerfill");
-const weaponList = document.getElementById("weaponlist");
-const commentaryEl = document.getElementById("commentary");
-const commentaryText = document.getElementById("commentary-text");
-const turnBanner = document.getElementById("turnbanner");
-const turnTeamLabel = document.getElementById("turnteam");
+const commentaryState = {
+  text: "",
+  timer: 0,
+  duration: 4,
+  popTimer: 0,
+};
 
 const keys = new Set();
 
@@ -48,6 +42,8 @@ const state = {
   explosions: [],
   wind: 0,
   seed: 0,
+  turnTimer: 30,
+  turnTimerMax: 30,
 };
 
 const visuals = {
@@ -57,6 +53,8 @@ const visuals = {
   bgCanvas: null,
   soilPattern: null,
 };
+
+const WIND_SCALE = 20;
 
 const config = {
   gravity: 900,
@@ -561,6 +559,7 @@ function resetGame(seedOverride) {
   state.weaponIndex = 0;
   state.aiTimer = 0;
   state.aiPlan = null;
+  state.turnTimer = state.turnTimerMax;
   buildTerrain();
   createWorms();
   updateHud();
@@ -585,97 +584,13 @@ function resize(width, height) {
   canvas.style.width = `${nextWidth}px`;
   canvas.style.height = `${nextHeight}px`;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  buildWeaponList();
   if (!net.enabled) {
     resetGame();
   }
 }
 
 function updateHud() {
-  const worm = state.worms[state.currentIndex];
-  if (!worm || state.gameOver) {
-    hudTurn.textContent = state.gameOver ? `Ganador: ${state.winner}` : "—";
-    if (hudBadge) {
-      hudBadge.textContent = state.gameOver ? "FIN" : "—";
-      hudBadge.classList.remove("team-rojo", "team-azul");
-    }
-  } else {
-    hudTurn.textContent = `${worm.name} · HP ${worm.health}`;
-    if (hudBadge) {
-      hudBadge.textContent = worm.team;
-      hudBadge.classList.toggle("team-rojo", worm.team === "Rojo");
-      hudBadge.classList.toggle("team-azul", worm.team === "Azul");
-    }
-  }
-  const weapon = weapons[state.weaponIndex];
-  hudWeapon.textContent = weapon ? weapon.name : "—";
-  if (hudWind) hudWind.textContent = `${state.wind}`;
-  hudPower.textContent = `${Math.round(state.charge * 100)}%`;
-  powerFill.style.width = `${Math.round(state.charge * 100)}%`;
-  powerBar.classList.toggle("charging", state.charging);
-  syncWeaponList();
-  updateTurnBanner();
-}
-
-function updateTurnBanner() {
-  if (!turnBanner || !turnTeamLabel) return;
-  const activeTeam = getActiveTeam();
-  const isMyTurn = net.enabled && net.team && activeTeam === net.team;
-  if (!net.enabled) {
-    turnBanner.classList.remove("active", "team-rojo", "team-azul");
-    turnBanner.style.opacity = "0";
-    return;
-  }
-  if (isMyTurn) {
-    turnTeamLabel.textContent = net.team;
-    turnBanner.classList.add("active");
-  } else {
-    turnBanner.classList.remove("active");
-  }
-  turnBanner.classList.toggle("team-rojo", net.team === "Rojo");
-  turnBanner.classList.toggle("team-azul", net.team === "Azul");
-}
-
-function buildWeaponList() {
-  if (!weaponList) return;
-  weaponList.innerHTML = "";
-  weapons.forEach((weapon, index) => {
-    const li = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "weapon-item";
-    button.dataset.index = String(index);
-    const key = document.createElement("span");
-    key.className = "weapon-key";
-    key.textContent = String(index + 1);
-    const name = document.createElement("span");
-    name.className = "weapon-name";
-    name.textContent = weapon.name;
-    button.appendChild(key);
-    button.appendChild(name);
-    button.addEventListener("click", () => {
-      if (net.enabled) {
-        if (!canApplyInput()) return;
-        const code = `Digit${index + 1}`;
-        sendNet({ type: "input", action: "keydown", code, key: code });
-        return;
-      }
-      setWeapon(index);
-    });
-    li.appendChild(button);
-    weaponList.appendChild(li);
-  });
-}
-
-function syncWeaponList() {
-  if (!weaponList) return;
-  const locked = state.projectiles.length > 0 || state.charging || state.gameOver;
-  weaponList.querySelectorAll("button").forEach((button) => {
-    const index = Number(button.dataset.index);
-    const isActive = index === state.weaponIndex;
-    button.classList.toggle("active", isActive);
-    button.disabled = locked;
-  });
+  // HUD is now drawn on canvas each frame
 }
 
 function getCurrentWeapon() {
@@ -689,16 +604,14 @@ function setWeapon(index) {
   updateHud();
 }
 
-function sayComment(type, ctx = {}) {
-  if (!commentaryEl || !commentaryText) return;
+function sayComment(type, extra = {}) {
   const list = commentary[type] || commentary.fire;
   let text = list[Math.floor(Math.random() * list.length)];
-  if (ctx.name) text = text.replaceAll("{name}", ctx.name);
-  if (ctx.weapon) text = text.replaceAll("{weapon}", ctx.weapon);
-  commentaryText.textContent = `"${text}"`;
-  commentaryEl.classList.remove("commentary-pop");
-  void commentaryEl.offsetWidth;
-  commentaryEl.classList.add("commentary-pop");
+  if (extra.name) text = text.replaceAll("{name}", extra.name);
+  if (extra.weapon) text = text.replaceAll("{weapon}", extra.weapon);
+  commentaryState.text = text;
+  commentaryState.timer = commentaryState.duration;
+  commentaryState.popTimer = 0.35;
 }
 
 function getActiveTeam() {
@@ -793,6 +706,8 @@ function applySnapshotToState(snapshot) {
   state.gameOver = snapshot.gameOver ?? false;
   state.winner = snapshot.winner ?? null;
   state.wind = snapshot.wind ?? 0;
+  state.turnTimer = snapshot.turnTimer ?? state.turnTimer;
+  state.turnTimerMax = snapshot.turnTimerMax ?? state.turnTimerMax;
   updateHud();
 }
 
@@ -984,8 +899,6 @@ function planShot(worm) {
   }
 
   let best = { score: Infinity, angle: worm.angle, power: 0.6, weaponIndex: 0 };
-  const weaponIndex = 0;
-  const weapon = weapons[weaponIndex];
   const startX = worm.x;
   const startY = worm.y;
   const target = targets.reduce((closest, current) => {
@@ -998,11 +911,14 @@ function planShot(worm) {
   const angleStart = towardRight ? 15 : 100;
   const angleEnd = towardRight ? 80 : 165;
 
-  for (let angle = angleStart; angle <= angleEnd; angle += aiConfig.angleStep) {
-    for (let power = aiConfig.powerMin; power <= aiConfig.powerMax; power += aiConfig.powerStep) {
-      const score = simulateShot(startX, startY, angle, power, weapon, targets);
-      if (score < best.score) {
-        best = { score, angle, power, weaponIndex };
+  for (let wi = 0; wi < weapons.length; wi++) {
+    const weapon = weapons[wi];
+    for (let angle = angleStart; angle <= angleEnd; angle += aiConfig.angleStep) {
+      for (let power = aiConfig.powerMin; power <= aiConfig.powerMax; power += aiConfig.powerStep) {
+        const score = simulateShot(startX, startY, angle, power, weapon, targets);
+        if (score < best.score) {
+          best = { score, angle, power, weaponIndex: wi };
+        }
       }
     }
   }
@@ -1021,6 +937,7 @@ function simulateShot(startX, startY, angle, power, weapon, targets) {
   const gravity = config.gravity * weapon.gravityScale;
 
   for (let t = 0; t < aiConfig.simMaxTime; t += aiConfig.simStep) {
+    vx += state.wind * WIND_SCALE * aiConfig.simStep;
     vy += gravity * aiConfig.simStep;
     x += vx * aiConfig.simStep;
     y += vy * aiConfig.simStep;
@@ -1065,6 +982,7 @@ function nextTurn() {
   const worm = state.worms[state.currentIndex];
   worm.angle = worm.team === "Rojo" ? 45 : 135;
   state.charge = 0;
+  state.turnTimer = state.turnTimerMax;
   updateHud();
   sayComment("turn", { name: worm.name });
 }
@@ -1179,6 +1097,7 @@ function updateProjectiles(dt) {
   const next = [];
 
   state.projectiles.forEach((p) => {
+    p.vx += state.wind * WIND_SCALE * dt;
     p.vy += p.gravity * dt;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
@@ -1404,6 +1323,7 @@ function drawTrajectory() {
   const step = 0.06;
   const maxTime = 2.6;
   for (let t = 0; t < maxTime; t += step) {
+    vx += state.wind * WIND_SCALE * step;
     vy += gravity * step;
     x += vx * step;
     y += vy * step;
@@ -1679,6 +1599,548 @@ function drawExplosions() {
     });
   });
 }
+const hudWeaponSlots = [];
+
+function drawRoundedRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawTeamBanners() {
+  const rojoAlive = state.worms.filter((w) => w.team === "Rojo" && w.alive).length;
+  const azulAlive = state.worms.filter((w) => w.team === "Azul" && w.alive).length;
+  const rojoTotal = state.worms.filter((w) => w.team === "Rojo").length;
+  const azulTotal = state.worms.filter((w) => w.team === "Azul").length;
+  const bw = 140;
+  const bh = 32;
+  const margin = 12;
+  const r = 6;
+  const activeTeam = getActiveTeam();
+
+  // Rojo banner (left)
+  const rx = margin;
+  const ry = margin;
+  ctx.save();
+  const rojoActive = activeTeam === "Rojo";
+  ctx.fillStyle = rojoActive ? "rgba(239, 71, 111, 0.85)" : "rgba(239, 71, 111, 0.5)";
+  drawRoundedRect(rx, ry, bw, bh, r);
+  ctx.fill();
+  if (rojoActive) {
+    ctx.strokeStyle = "#ffd166";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.font = "bold 13px Trebuchet MS";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#fff";
+  ctx.fillText("ROJO", rx + 10, ry + 20);
+  ctx.font = "12px Trebuchet MS";
+  ctx.textAlign = "right";
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillText(`${rojoAlive}/${rojoTotal}`, rx + bw - 10, ry + 20);
+  ctx.restore();
+
+  // Azul banner (right)
+  const ax = state.width - margin - bw;
+  const ay = margin;
+  ctx.save();
+  const azulActive = activeTeam === "Azul";
+  ctx.fillStyle = azulActive ? "rgba(17, 138, 178, 0.85)" : "rgba(17, 138, 178, 0.5)";
+  drawRoundedRect(ax, ay, bw, bh, r);
+  ctx.fill();
+  if (azulActive) {
+    ctx.strokeStyle = "#ffd166";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.font = "bold 13px Trebuchet MS";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#fff";
+  ctx.fillText("AZUL", ax + 10, ay + 20);
+  ctx.font = "12px Trebuchet MS";
+  ctx.textAlign = "right";
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillText(`${azulAlive}/${azulTotal}`, ax + bw - 10, ay + 20);
+  ctx.restore();
+}
+
+function drawTurnTimer() {
+  const timer = Math.max(0, Math.ceil(state.turnTimer));
+  const cx = state.width / 2;
+  const ty = 12;
+  const tw = 60;
+  const th = 30;
+  const r = 8;
+  const urgent = state.turnTimer < 5;
+
+  ctx.save();
+  ctx.fillStyle = urgent ? "rgba(200, 30, 30, 0.85)" : "rgba(15, 23, 42, 0.8)";
+  drawRoundedRect(cx - tw / 2, ty, tw, th, r);
+  ctx.fill();
+  if (urgent) {
+    ctx.strokeStyle = "#ef476f";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = "rgba(255, 209, 102, 0.5)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.font = "bold 16px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillStyle = urgent ? "#ffd166" : "#f8f8fb";
+  ctx.fillText(`${timer}`, cx, ty + 22);
+  ctx.restore();
+}
+
+function drawWindIndicator() {
+  const cx = state.width / 2;
+  const wy = 50;
+  const wind = state.wind;
+  const absWind = Math.abs(wind);
+  const maxWind = 5;
+
+  ctx.save();
+  const bgW = 130;
+  const bgH = 22;
+  ctx.fillStyle = "rgba(15, 23, 42, 0.7)";
+  drawRoundedRect(cx - bgW / 2, wy, bgW, bgH, 5);
+  ctx.fill();
+
+  ctx.font = "10px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "rgba(255,255,255,0.6)";
+  ctx.fillText("VIENTO", cx, wy + 14);
+
+  // Wind bar
+  const barW = 40;
+  const barH = 4;
+  const barX = cx - barW / 2;
+  const barY = wy + bgH - 6;
+  ctx.fillStyle = "rgba(255,255,255,0.15)";
+  ctx.fillRect(barX, barY, barW, barH);
+
+  if (wind !== 0) {
+    const fillW = (absWind / maxWind) * (barW / 2);
+    const color = wind > 0 ? "#06d6a0" : "#ef476f";
+    ctx.fillStyle = color;
+    if (wind > 0) {
+      ctx.fillRect(cx, barY, fillW, barH);
+    } else {
+      ctx.fillRect(cx - fillW, barY, fillW, barH);
+    }
+
+    // Arrow
+    const arrowX = wind > 0 ? cx + bgW / 2 - 18 : cx - bgW / 2 + 18;
+    const dir = wind > 0 ? 1 : -1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(arrowX - dir * 6, wy + bgH / 2);
+    ctx.lineTo(arrowX + dir * 6, wy + bgH / 2);
+    ctx.lineTo(arrowX + dir * 2, wy + bgH / 2 - 4);
+    ctx.moveTo(arrowX + dir * 6, wy + bgH / 2);
+    ctx.lineTo(arrowX + dir * 2, wy + bgH / 2 + 4);
+    ctx.stroke();
+  }
+
+  // Wind speed text
+  ctx.font = "bold 10px Trebuchet MS";
+  ctx.fillStyle = "#ffd166";
+  ctx.textAlign = "left";
+  ctx.fillText(`${absWind}`, cx + bgW / 2 - 12, wy + 14);
+  ctx.textAlign = "right";
+  ctx.fillText(`${absWind}`, cx - bgW / 2 + 12, wy + 14);
+
+  ctx.restore();
+}
+
+function drawWeaponBar() {
+  const locked = state.projectiles.length > 0 || state.charging || state.gameOver;
+  const slotW = 70;
+  const slotH = 28;
+  const gap = 6;
+  const totalW = weapons.length * slotW + (weapons.length - 1) * gap;
+  const startX = (state.width - totalW) / 2;
+  const startY = state.height - slotH - 50;
+  const r = 6;
+
+  hudWeaponSlots.length = 0;
+
+  ctx.save();
+  // Background strip
+  ctx.fillStyle = "rgba(10, 14, 24, 0.6)";
+  drawRoundedRect(startX - 8, startY - 4, totalW + 16, slotH + 8, 8);
+  ctx.fill();
+
+  for (let i = 0; i < weapons.length; i++) {
+    const x = startX + i * (slotW + gap);
+    const y = startY;
+    const isActive = i === state.weaponIndex;
+
+    hudWeaponSlots.push({ x, y, w: slotW, h: slotH, index: i });
+
+    if (isActive) {
+      ctx.fillStyle = "rgba(255, 209, 102, 0.25)";
+      ctx.strokeStyle = "#ffd166";
+      ctx.lineWidth = 2;
+    } else {
+      ctx.fillStyle = locked ? "rgba(15, 24, 40, 0.4)" : "rgba(15, 24, 40, 0.65)";
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+      ctx.lineWidth = 1;
+    }
+
+    drawRoundedRect(x, y, slotW, slotH, r);
+    ctx.fill();
+    ctx.stroke();
+
+    // Key number
+    ctx.font = "bold 10px Trebuchet MS";
+    ctx.textAlign = "left";
+    ctx.fillStyle = isActive ? "#ffd166" : "rgba(255,255,255,0.5)";
+    ctx.fillText(`${i + 1}`, x + 6, y + 18);
+
+    // Weapon name
+    ctx.font = "11px Trebuchet MS";
+    ctx.textAlign = "center";
+    ctx.fillStyle = isActive ? "#fff" : (locked ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.8)");
+    ctx.fillText(weapons[i].name, x + slotW / 2 + 4, y + 18);
+  }
+  ctx.restore();
+}
+
+function drawStatusBar() {
+  const worm = state.worms[state.currentIndex];
+  if (!worm) return;
+
+  const barY = state.height - 38;
+  const margin = 12;
+
+  ctx.save();
+  // Background
+  ctx.fillStyle = "rgba(10, 14, 24, 0.6)";
+  drawRoundedRect(margin, barY - 4, state.width - margin * 2, 30, 6);
+  ctx.fill();
+
+  // Worm name + HP (left)
+  ctx.font = "bold 12px Trebuchet MS";
+  ctx.textAlign = "left";
+  const teamColor = worm.team === "Rojo" ? "#ef476f" : "#118ab2";
+  ctx.fillStyle = teamColor;
+  ctx.fillText(`${worm.name}`, margin + 10, barY + 16);
+
+  ctx.font = "12px Trebuchet MS";
+  ctx.fillStyle = "#f8f8fb";
+  ctx.fillText(`HP ${worm.health}`, margin + 90, barY + 16);
+
+  // Power bar (center)
+  const pbX = state.width / 2 - 100;
+  const pbW = 200;
+  const pbH = 10;
+  const pbY = barY + 7;
+
+  ctx.fillStyle = "rgba(15, 24, 40, 0.8)";
+  ctx.fillRect(pbX, pbY, pbW, pbH);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(pbX, pbY, pbW, pbH);
+
+  if (state.charge > 0) {
+    const fillW = pbW * clamp(state.charge, 0, 1);
+    const grad = ctx.createLinearGradient(pbX, pbY, pbX + pbW, pbY);
+    grad.addColorStop(0, "#06d6a0");
+    grad.addColorStop(0.6, "#ffd166");
+    grad.addColorStop(1, "#ef476f");
+    ctx.fillStyle = grad;
+    ctx.fillRect(pbX, pbY, fillW, pbH);
+  }
+
+  // Segments
+  for (let i = 1; i < 10; i++) {
+    const sx = pbX + (pbW / 10) * i;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.beginPath();
+    ctx.moveTo(sx, pbY);
+    ctx.lineTo(sx, pbY + pbH);
+    ctx.stroke();
+  }
+
+  // Power % (right)
+  ctx.font = "bold 12px Trebuchet MS";
+  ctx.textAlign = "right";
+  ctx.fillStyle = state.charging ? "#ffd166" : "#f8f8fb";
+  ctx.fillText(`${Math.round(state.charge * 100)}%`, state.width - margin - 10, barY + 16);
+
+  // Weapon name (right of power)
+  ctx.font = "11px Trebuchet MS";
+  ctx.textAlign = "right";
+  ctx.fillStyle = "rgba(255,255,255,0.6)";
+  const weapon = getCurrentWeapon();
+  ctx.fillText(weapon.name, state.width - margin - 55, barY + 16);
+
+  ctx.restore();
+}
+
+function drawCommentatorAvatar(cx, cy, scale) {
+  const s = scale;
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Body/shirt
+  ctx.fillStyle = "#2c3e50";
+  ctx.beginPath();
+  ctx.ellipse(0, s * 18, s * 14, s * 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Shirt collar accent
+  ctx.fillStyle = "#e74c3c";
+  ctx.beginPath();
+  ctx.moveTo(-s * 5, s * 8);
+  ctx.lineTo(0, s * 14);
+  ctx.lineTo(s * 5, s * 8);
+  ctx.closePath();
+  ctx.fill();
+
+  // Head
+  const headGrad = ctx.createRadialGradient(-s * 2, -s * 6, s * 2, 0, -s * 2, s * 14);
+  headGrad.addColorStop(0, "#f5cba7");
+  headGrad.addColorStop(1, "#d4a574");
+  ctx.fillStyle = headGrad;
+  ctx.beginPath();
+  ctx.ellipse(0, -s * 2, s * 11, s * 13, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Hair
+  ctx.fillStyle = "#1a1a2e";
+  ctx.beginPath();
+  ctx.ellipse(0, -s * 12, s * 12, s * 6, 0, Math.PI, 0);
+  ctx.fill();
+  // Side hair
+  ctx.beginPath();
+  ctx.ellipse(-s * 11, -s * 4, s * 3, s * 7, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(s * 11, -s * 4, s * 3, s * 7, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Headphones band
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = s * 2.5;
+  ctx.beginPath();
+  ctx.arc(0, -s * 8, s * 14, Math.PI + 0.3, -0.3);
+  ctx.stroke();
+
+  // Headphone ear pads
+  ctx.fillStyle = "#444";
+  ctx.beginPath();
+  ctx.ellipse(-s * 13, -s * 2, s * 4, s * 6, 0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#555";
+  ctx.beginPath();
+  ctx.ellipse(-s * 13, -s * 2, s * 2.5, s * 4, 0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#444";
+  ctx.beginPath();
+  ctx.ellipse(s * 13, -s * 2, s * 4, s * 6, -0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#555";
+  ctx.beginPath();
+  ctx.ellipse(s * 13, -s * 2, s * 2.5, s * 4, -0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.ellipse(-s * 4, -s * 3, s * 3, s * 3.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(s * 4, -s * 3, s * 3, s * 3.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#1a1a2e";
+  ctx.beginPath();
+  ctx.arc(-s * 3.5, -s * 2.5, s * 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(s * 4.5, -s * 2.5, s * 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eye shine
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.beginPath();
+  ctx.arc(-s * 4.2, -s * 3.5, s * 0.7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(s * 3.8, -s * 3.5, s * 0.7, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Mouth - excited open smile
+  ctx.fillStyle = "#c0392b";
+  ctx.beginPath();
+  ctx.arc(0, s * 5, s * 4, 0.1, Math.PI - 0.1);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.rect(-s * 2.5, s * 4.5, s * 5, s * 1.5);
+  ctx.fill();
+
+  // Microphone boom
+  ctx.strokeStyle = "#666";
+  ctx.lineWidth = s * 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-s * 12, s * 2);
+  ctx.quadraticCurveTo(-s * 10, s * 10, -s * 2, s * 8);
+  ctx.stroke();
+
+  // Mic head
+  ctx.fillStyle = "#333";
+  ctx.beginPath();
+  ctx.ellipse(-s * 2, s * 8, s * 2.5, s * 2, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#888";
+  ctx.beginPath();
+  ctx.arc(-s * 2, s * 8, s * 1.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawSpeechBubble(bx, by, bw, bh, tailX, tailY) {
+  const r = 10;
+  ctx.beginPath();
+  ctx.moveTo(bx + r, by);
+  ctx.lineTo(bx + bw - r, by);
+  ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r);
+  ctx.lineTo(bx + bw, by + bh - r);
+  ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r, by + bh);
+
+  // Tail from bottom-left area
+  ctx.lineTo(bx + 40, by + bh);
+  ctx.lineTo(tailX, tailY);
+  ctx.lineTo(bx + 20, by + bh);
+
+  ctx.lineTo(bx + r, by + bh);
+  ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - r);
+  ctx.lineTo(bx, by + r);
+  ctx.quadraticCurveTo(bx, by, bx + r, by);
+  ctx.closePath();
+}
+
+function wrapText(text, maxWidth) {
+  const words = text.split(" ");
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    const test = current ? current + " " + word : word;
+    if (ctx.measureText(test).width > maxWidth && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function drawCommentary() {
+  if (commentaryState.timer <= 0 || !commentaryState.text) return;
+
+  const alpha = commentaryState.timer < 0.8
+    ? commentaryState.timer / 0.8
+    : 1;
+
+  const popScale = commentaryState.popTimer > 0
+    ? 1 + commentaryState.popTimer * 0.15
+    : 1;
+
+  const avatarX = 38;
+  const avatarY = state.height - 110;
+  const avatarScale = 1.6;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // Avatar circle background
+  ctx.fillStyle = "rgba(10, 14, 24, 0.75)";
+  ctx.beginPath();
+  ctx.arc(avatarX, avatarY, 32, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#ffd166";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  drawCommentatorAvatar(avatarX, avatarY, avatarScale);
+
+  // Speech bubble
+  ctx.font = "bold 12px Trebuchet MS";
+  const maxTextW = 200;
+  const lines = wrapText(commentaryState.text, maxTextW);
+  const lineH = 16;
+  const padding = 10;
+  const bubbleW = maxTextW + padding * 2;
+  const bubbleH = lines.length * lineH + padding * 2;
+  const bubbleX = avatarX + 38;
+  const bubbleY = avatarY - bubbleH - 20;
+  const tailX = avatarX + 20;
+  const tailY = avatarY - 18;
+
+  ctx.save();
+  if (popScale !== 1) {
+    const pivotX = bubbleX + bubbleW * 0.2;
+    const pivotY = bubbleY + bubbleH;
+    ctx.translate(pivotX, pivotY);
+    ctx.scale(popScale, popScale);
+    ctx.translate(-pivotX, -pivotY);
+  }
+
+  // Bubble shadow
+  ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+  drawSpeechBubble(bubbleX + 3, bubbleY + 3, bubbleW, bubbleH, tailX + 3, tailY + 3);
+  ctx.fill();
+
+  // Bubble fill
+  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+  drawSpeechBubble(bubbleX, bubbleY, bubbleW, bubbleH, tailX, tailY);
+  ctx.fill();
+
+  // Bubble border
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Text
+  ctx.font = "bold 12px Trebuchet MS";
+  ctx.fillStyle = "#1a1a2e";
+  ctx.textAlign = "left";
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], bubbleX + padding, bubbleY + padding + 12 + i * lineH);
+  }
+
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawHud() {
+  drawTeamBanners();
+  drawTurnTimer();
+  drawWindIndicator();
+  drawWeaponBar();
+  drawStatusBar();
+  drawCommentary();
+}
+
 function render() {
   if (!ctx) return;
   if (!state.width || !state.height) return;
@@ -1694,6 +2156,7 @@ function render() {
   state.worms.forEach((worm, index) => drawWorm(worm, index === state.currentIndex));
   drawProjectiles();
   drawExplosions();
+  drawHud();
 
   if (state.gameOver) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
@@ -1722,8 +2185,11 @@ function updateCharge(dt) {
 }
 
 function step(dt) {
+  const cdt = Math.min(0.033, dt);
+  if (commentaryState.timer > 0) commentaryState.timer -= cdt;
+  if (commentaryState.popTimer > 0) commentaryState.popTimer -= cdt;
   if (net.enabled) {
-    updateExplosions(Math.min(0.033, dt));
+    updateExplosions(cdt);
     return;
   }
   const safeDt = Math.min(0.033, dt);
@@ -1736,6 +2202,21 @@ function step(dt) {
     updateProjectiles(safeDt);
     updateExplosions(safeDt);
     updateCharge(safeDt);
+    if (state.projectiles.length === 0 && !state.gameOver) {
+      state.turnTimer -= safeDt;
+      if (state.turnTimer <= 0) {
+        state.turnTimer = 0;
+        const worm = state.worms[state.currentIndex];
+        if (worm && worm.alive) {
+          const weapon = getCurrentWeapon();
+          const power = state.charging ? state.charge : 0.5;
+          state.charging = false;
+          state.charge = 0;
+          state.chargeDir = 1;
+          fireProjectile(worm, power, weapon);
+        }
+      }
+    }
   }
 }
 
@@ -1796,7 +2277,31 @@ function handleKeyUp(event, sourceTeam = null) {
   return true;
 }
 
+function handleCanvasClick(event) {
+  if (!canvas || !state.width || !state.height) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = state.width / rect.width;
+  const scaleY = state.height / rect.height;
+  const mx = (event.clientX - rect.left) * scaleX;
+  const my = (event.clientY - rect.top) * scaleY;
+
+  for (const slot of hudWeaponSlots) {
+    if (mx >= slot.x && mx <= slot.x + slot.w && my >= slot.y && my <= slot.y + slot.h) {
+      if (net.enabled) {
+        if (!canApplyInput()) return;
+        const code = `Digit${slot.index + 1}`;
+        sendNet({ type: "input", action: "keydown", code, key: code });
+        return;
+      }
+      setWeapon(slot.index);
+      return;
+    }
+  }
+}
+
 function bindInput(phaserScene) {
+  canvas.addEventListener("click", handleCanvasClick);
+
   phaserScene.input.keyboard.on("keydown", (event) => {
     if (event.code === "KeyR") {
       if (net.enabled) {

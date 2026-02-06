@@ -7,49 +7,7 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div id="hud">
-      <div class="panel-header">
-        <div class="title">Estado</div>
-        <div id="turnbadge" class="panel-badge">—</div>
-      </div>
-      <div class="stat-row">
-        <div class="stat-label">Turno</div>
-        <div id="turn" class="stat-value">—</div>
-      </div>
-      <div class="stat-row">
-        <div class="stat-label">Arma</div>
-        <div id="weapon" class="stat-value">—</div>
-      </div>
-      <div class="stat-row">
-        <div class="stat-label">Viento</div>
-        <div id="wind" class="stat-value">0</div>
-      </div>
-      <div class="weapon-list">
-        <div class="power-label">Armas</div>
-        <ul id="weaponlist" aria-label="Lista de armas"></ul>
-      </div>
-      <div class="power-block">
-        <div class="power-row">
-          <div class="power-label">Potencia</div>
-          <div id="power">0%</div>
-        </div>
-        <div id="powerbar" aria-hidden="true">
-          <div id="powerfill"></div>
-          <div id="powerticks"></div>
-        </div>
-      </div>
-      <div class="help">
-        Controles: ←/→ mover · ↑/↓ apuntar · Espacio mantener/soltar para disparar · 1-5 armas · Q/E cambiar · clic en arma · R reiniciar
-      </div>
-    </div>
     <canvas id="game"></canvas>
-    <div id="commentary" role="status" aria-live="polite">
-      <div class="commentary-badge">COMENTARISTA AI</div>
-      <div id="commentary-text">"¡Listo para el caos!"</div>
-    </div>
-    <div id="turnbanner" class="turn-banner">
-      Tu turno: <span id="turnteam" class="team">—</span>
-    </div>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
     <script src="main.js"></script>
   </body>
