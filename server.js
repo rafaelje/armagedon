@@ -7,6 +7,8 @@ const GAME_WIDTH = 1280;
 const GAME_HEIGHT = 720;
 const TICK_RATE = 30;
 
+const WIND_SCALE = 20;
+
 const config = {
   gravity: 900,
   moveSpeed: 90,
@@ -99,6 +101,8 @@ const state = {
   winner: null,
   wind: 0,
   seed,
+  turnTimer: 30,
+  turnTimerMax: 30,
 };
 
 function clamp(value, min, max) {
@@ -142,26 +146,113 @@ function flattenRange(x0, x1, y) {
   }
 }
 
-function buildTerrain() {
-  const width = state.width;
-  const height = state.height;
-  const base = height * 0.68;
-  const amp1 = height * 0.12;
-  const amp2 = height * 0.06;
-  const rng = createRng(state.seed || 1);
-  const phase1 = seededRand(rng, 0, Math.PI * 2);
-  const phase2 = seededRand(rng, 0, Math.PI * 2);
+function smoothTerrain(passes) {
+  for (let p = 0; p < passes; p++) {
+    const copy = [...state.terrain];
+    for (let x = 1; x < state.terrain.length - 1; x++) {
+      state.terrain[x] = (copy[x - 1] + copy[x] + copy[x + 1]) / 3;
+    }
+  }
+}
 
-  state.terrain = new Array(Math.floor(width) + 1);
-  for (let x = 0; x <= width; x += 1) {
-    const y = base + Math.sin(x * 0.01 + phase1) * amp1 + Math.sin(x * 0.004 + phase2) * amp2;
-    state.terrain[x] = clamp(y, height * 0.45, height * 0.92);
+function avgTerrainHeight(x0, x1) {
+  let sum = 0;
+  let count = 0;
+  for (let x = x0; x <= x1; x++) {
+    sum += state.terrain[x];
+    count++;
+  }
+  return count > 0 ? sum / count : state.height * 0.6;
+}
+
+function generateMapName(rng) {
+  const adj = [
+    "Salvaje", "Árido", "Olvidado", "Caótico", "Maldito",
+    "Perdido", "Bravo", "Oscuro", "Lejano", "Helado",
+    "Profundo", "Roto", "Seco", "Turbio", "Feroz",
+  ];
+  const noun = [
+    "Cañón", "Valle", "Desierto", "Páramo", "Abismo",
+    "Terreno", "Campo", "Cerro", "Peñasco", "Risco",
+    "Barranco", "Cráter", "Paso", "Llano", "Acantilado",
+  ];
+  return `${noun[Math.floor(rng() * noun.length)]} ${adj[Math.floor(rng() * adj.length)]}`;
+}
+
+function buildTerrain() {
+  const w = state.width;
+  const h = state.height;
+  const rng = createRng(state.seed || 1);
+  state.terrain = new Array(Math.floor(w) + 1);
+
+  const base = seededRand(rng, h * 0.58, h * 0.75);
+
+  const numWaves = Math.floor(seededRand(rng, 2, 6));
+  const waves = [];
+  for (let i = 0; i < numWaves; i++) {
+    waves.push({
+      freq: seededRand(rng, 0.004, 0.045),
+      amp: seededRand(rng, h * 0.015, h * 0.12),
+      phase: seededRand(rng, 0, Math.PI * 2),
+    });
   }
 
-  const platformY = height * 0.55;
-  flattenRange(width * 0.18, width * 0.32, platformY);
-  flattenRange(width * 0.6, width * 0.78, height * 0.52);
-  flattenRange(width * 0.42, width * 0.5, height * 0.62);
+  const shapeType = Math.floor(rng() * 5);
+  const shapeAmp = seededRand(rng, h * 0.06, h * 0.22);
+
+  for (let x = 0; x <= w; x++) {
+    let y = base;
+    const nx = x / w;
+
+    if (shapeType === 1) {
+      y += (1 - 4 * (nx - 0.5) * (nx - 0.5)) * shapeAmp;
+    } else if (shapeType === 2) {
+      y -= (1 - 4 * (nx - 0.5) * (nx - 0.5)) * shapeAmp;
+    } else if (shapeType === 3) {
+      y += (nx - 0.5) * shapeAmp;
+    } else if (shapeType === 4) {
+      y -= (nx - 0.5) * shapeAmp;
+    }
+
+    for (const wave of waves) {
+      y += Math.sin(x * wave.freq + wave.phase) * wave.amp;
+    }
+    state.terrain[x] = y;
+  }
+
+  const numBumps = Math.floor(seededRand(rng, 0, 5));
+  for (let i = 0; i < numBumps; i++) {
+    const cx = seededRand(rng, w * 0.05, w * 0.95);
+    const bw = seededRand(rng, 30, 130);
+    const bh = seededRand(rng, -h * 0.14, h * 0.14);
+    for (let x = 0; x <= w; x++) {
+      const dx = (x - cx) / bw;
+      if (Math.abs(dx) < 3) {
+        state.terrain[x] += Math.exp(-dx * dx) * bh;
+      }
+    }
+  }
+
+  for (let x = 0; x <= w; x++) {
+    state.terrain[x] = clamp(state.terrain[x], h * 0.4, h * 0.92);
+  }
+
+  smoothTerrain(3);
+
+  const numPlatforms = Math.floor(seededRand(rng, 0, 3));
+  for (let i = 0; i < numPlatforms; i++) {
+    const px = seededRand(rng, w * 0.35, w * 0.65);
+    const pw = seededRand(rng, w * 0.04, w * 0.1);
+    const ph = seededRand(rng, h * 0.45, h * 0.72);
+    flattenRange(px - pw / 2, px + pw / 2, ph);
+  }
+
+  const leftAvg = avgTerrainHeight(Math.floor(w * 0.18), Math.floor(w * 0.32));
+  const rightAvg = avgTerrainHeight(Math.floor(w * 0.68), Math.floor(w * 0.84));
+  flattenRange(w * 0.18, w * 0.32, clamp(leftAvg, h * 0.43, h * 0.78));
+  flattenRange(w * 0.68, w * 0.84, clamp(rightAvg, h * 0.43, h * 0.78));
+
+  state.mapName = generateMapName(rng);
 }
 
 function makeWorm({ id, name, team, color, x }) {
@@ -221,6 +312,8 @@ function resetGame(seedOverride) {
   state.charge = 0;
   state.charging = false;
   state.weaponIndex = 0;
+  state.turnTimer = state.turnTimerMax;
+  state.wind = Math.floor(Math.random() * 11) - 5;
   buildTerrain();
   createWorms();
 }
@@ -251,6 +344,7 @@ function nextTurn() {
   const worm = state.worms[state.currentIndex];
   worm.angle = worm.team === "Rojo" ? 45 : 135;
   state.charge = 0;
+  state.turnTimer = state.turnTimerMax;
 }
 
 function updateWorm(worm, dt, isActive) {
@@ -343,6 +437,7 @@ function updateProjectiles(dt) {
   const next = [];
 
   state.projectiles.forEach((p) => {
+    p.vx += state.wind * WIND_SCALE * dt;
     p.vy += p.gravity * dt;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
@@ -471,6 +566,21 @@ function step(dt) {
   });
   updateProjectiles(dt);
   updateCharge(dt);
+  if (state.projectiles.length === 0 && !state.gameOver) {
+    state.turnTimer -= dt;
+    if (state.turnTimer <= 0) {
+      state.turnTimer = 0;
+      const worm = state.worms[state.currentIndex];
+      if (worm && worm.alive) {
+        const weapon = weapons[state.weaponIndex] ?? weapons[0];
+        const power = state.charging ? state.charge : 0.5;
+        state.charging = false;
+        state.charge = 0;
+        state.chargeDir = 1;
+        fireProjectile(worm, power, weapon);
+      }
+    }
+  }
 }
 
 function snapshot(full = false) {
@@ -487,6 +597,8 @@ function snapshot(full = false) {
     gameOver: state.gameOver,
     winner: state.winner,
     wind: state.wind,
+    turnTimer: state.turnTimer,
+    turnTimerMax: state.turnTimerMax,
   };
   if (full) {
     snap.terrain = state.terrain;

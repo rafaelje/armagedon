@@ -1,20 +1,25 @@
 let canvas = null;
 let ctx = null;
 
-const hudTurn = document.getElementById("turn");
-const hudPower = document.getElementById("power");
-const hudWeapon = document.getElementById("weapon");
-const hudWind = document.getElementById("wind");
-const hudBadge = document.getElementById("turnbadge");
-const powerBar = document.getElementById("powerbar");
-const powerFill = document.getElementById("powerfill");
-const weaponList = document.getElementById("weaponlist");
-const commentaryEl = document.getElementById("commentary");
-const commentaryText = document.getElementById("commentary-text");
-const turnBanner = document.getElementById("turnbanner");
-const turnTeamLabel = document.getElementById("turnteam");
+const commentaryState = {
+  text: "",
+  timer: 0,
+  duration: 4,
+  popTimer: 0,
+};
 
 const keys = new Set();
+
+const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
+  navigator.userAgent
+) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
+
+if (isMobile && screen.orientation && screen.orientation.lock) {
+  screen.orientation.lock("landscape").catch(() => {});
+}
+
+const touchButtons = [];
+const activeTouches = new Map();
 
 const net = {
   enabled: new URLSearchParams(window.location.search).has("mp"),
@@ -47,7 +52,15 @@ const state = {
   aiPlan: null,
   explosions: [],
   wind: 0,
+  clouds: [],
+  windGusts: [],
+  gustTimer: 0,
+  gustExtra: 0,
   seed: 0,
+  turnTimer: 30,
+  turnTimerMax: 30,
+  healthPacks: [],
+  packSpawnTimer: 0,
 };
 
 const visuals = {
@@ -57,6 +70,8 @@ const visuals = {
   bgCanvas: null,
   soilPattern: null,
 };
+
+const WIND_SCALE = 20;
 
 const config = {
   gravity: 900,
@@ -177,6 +192,12 @@ const commentary = {
     "¡Se fue a ver lombrices al cielo!",
     "¡KO con estilo!",
     "¡Bye bye, gusano valiente!",
+  ],
+  heal: [
+    "¡Botiquín al rescate!",
+    "¡Vitaminas gratis!",
+    "¡Salud que cae del cielo!",
+    "¡Curitas para todos!",
   ],
 };
 
@@ -304,17 +325,6 @@ function buildBackground() {
   const rng = createRng((state.seed || 1) ^ 0x9e3779b9);
   drawMountainLayer(gctx, rng, state.height * 0.62, state.height * 0.18, "#5f7ea8", 0.35);
   drawMountainLayer(gctx, rng, state.height * 0.7, state.height * 0.24, "#4c6d94", 0.55);
-
-  gctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-  for (let i = 0; i < 4; i += 1) {
-    const x = seededRand(rng, state.width * 0.1, state.width * 0.9);
-    const y = seededRand(rng, state.height * 0.08, state.height * 0.38);
-    const w = seededRand(rng, 80, 140);
-    const h = seededRand(rng, 24, 40);
-    gctx.beginPath();
-    gctx.ellipse(x, y, w, h, 0, 0, Math.PI * 2);
-    gctx.fill();
-  }
 
   visuals.bgCanvas = bg;
 }
@@ -561,10 +571,14 @@ function resetGame(seedOverride) {
   state.weaponIndex = 0;
   state.aiTimer = 0;
   state.aiPlan = null;
+  state.turnTimer = state.turnTimerMax;
+  state.healthPacks = [];
+  state.packSpawnTimer = 20 + Math.random() * 10;
   buildTerrain();
   createWorms();
   updateHud();
   state.wind = Math.floor(rand(-5, 5));
+  initClouds();
   const worm = state.worms[state.currentIndex];
   if (worm) {
     sayComment("turn", { name: `${worm.name} — Mapa: ${state.mapName}` });
@@ -585,97 +599,14 @@ function resize(width, height) {
   canvas.style.width = `${nextWidth}px`;
   canvas.style.height = `${nextHeight}px`;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  buildWeaponList();
+  if (isMobile) updateTouchLayout();
   if (!net.enabled) {
     resetGame();
   }
 }
 
 function updateHud() {
-  const worm = state.worms[state.currentIndex];
-  if (!worm || state.gameOver) {
-    hudTurn.textContent = state.gameOver ? `Ganador: ${state.winner}` : "—";
-    if (hudBadge) {
-      hudBadge.textContent = state.gameOver ? "FIN" : "—";
-      hudBadge.classList.remove("team-rojo", "team-azul");
-    }
-  } else {
-    hudTurn.textContent = `${worm.name} · HP ${worm.health}`;
-    if (hudBadge) {
-      hudBadge.textContent = worm.team;
-      hudBadge.classList.toggle("team-rojo", worm.team === "Rojo");
-      hudBadge.classList.toggle("team-azul", worm.team === "Azul");
-    }
-  }
-  const weapon = weapons[state.weaponIndex];
-  hudWeapon.textContent = weapon ? weapon.name : "—";
-  if (hudWind) hudWind.textContent = `${state.wind}`;
-  hudPower.textContent = `${Math.round(state.charge * 100)}%`;
-  powerFill.style.width = `${Math.round(state.charge * 100)}%`;
-  powerBar.classList.toggle("charging", state.charging);
-  syncWeaponList();
-  updateTurnBanner();
-}
-
-function updateTurnBanner() {
-  if (!turnBanner || !turnTeamLabel) return;
-  const activeTeam = getActiveTeam();
-  const isMyTurn = net.enabled && net.team && activeTeam === net.team;
-  if (!net.enabled) {
-    turnBanner.classList.remove("active", "team-rojo", "team-azul");
-    turnBanner.style.opacity = "0";
-    return;
-  }
-  if (isMyTurn) {
-    turnTeamLabel.textContent = net.team;
-    turnBanner.classList.add("active");
-  } else {
-    turnBanner.classList.remove("active");
-  }
-  turnBanner.classList.toggle("team-rojo", net.team === "Rojo");
-  turnBanner.classList.toggle("team-azul", net.team === "Azul");
-}
-
-function buildWeaponList() {
-  if (!weaponList) return;
-  weaponList.innerHTML = "";
-  weapons.forEach((weapon, index) => {
-    const li = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "weapon-item";
-    button.dataset.index = String(index);
-    const key = document.createElement("span");
-    key.className = "weapon-key";
-    key.textContent = String(index + 1);
-    const name = document.createElement("span");
-    name.className = "weapon-name";
-    name.textContent = weapon.name;
-    button.appendChild(key);
-    button.appendChild(name);
-    button.addEventListener("click", () => {
-      if (net.enabled) {
-        if (!canApplyInput()) return;
-        const code = `Digit${index + 1}`;
-        sendNet({ type: "input", action: "keydown", code, key: code });
-        return;
-      }
-      setWeapon(index);
-    });
-    li.appendChild(button);
-    weaponList.appendChild(li);
-  });
-}
-
-function syncWeaponList() {
-  if (!weaponList) return;
-  const locked = state.projectiles.length > 0 || state.charging || state.gameOver;
-  weaponList.querySelectorAll("button").forEach((button) => {
-    const index = Number(button.dataset.index);
-    const isActive = index === state.weaponIndex;
-    button.classList.toggle("active", isActive);
-    button.disabled = locked;
-  });
+  // HUD is now drawn on canvas each frame
 }
 
 function getCurrentWeapon() {
@@ -689,16 +620,180 @@ function setWeapon(index) {
   updateHud();
 }
 
-function sayComment(type, ctx = {}) {
-  if (!commentaryEl || !commentaryText) return;
+function sayComment(type, extra = {}) {
   const list = commentary[type] || commentary.fire;
   let text = list[Math.floor(Math.random() * list.length)];
-  if (ctx.name) text = text.replaceAll("{name}", ctx.name);
-  if (ctx.weapon) text = text.replaceAll("{weapon}", ctx.weapon);
-  commentaryText.textContent = `"${text}"`;
-  commentaryEl.classList.remove("commentary-pop");
-  void commentaryEl.offsetWidth;
-  commentaryEl.classList.add("commentary-pop");
+  if (extra.name) text = text.replaceAll("{name}", extra.name);
+  if (extra.weapon) text = text.replaceAll("{weapon}", extra.weapon);
+  commentaryState.text = text;
+  commentaryState.timer = commentaryState.duration;
+  commentaryState.popTimer = 0.35;
+}
+
+function spawnHealthPack() {
+  const pack = {
+    x: state.width * (0.1 + Math.random() * 0.8),
+    y: -40,
+    fallSpeed: 40 + Math.random() * 20,
+    healAmount: Math.floor(5 + Math.random() * 16),
+    swayPhase: Math.random() * Math.PI * 2,
+    age: 0,
+    grounded: false,
+    groundTimer: 0,
+    alive: true,
+  };
+  state.healthPacks.push(pack);
+}
+
+function updateHealthPacks(dt) {
+  for (const pack of state.healthPacks) {
+    if (!pack.alive) continue;
+    pack.age += dt;
+
+    if (!pack.grounded) {
+      pack.y += pack.fallSpeed * dt;
+      pack.x += Math.sin(pack.age * 2.5 + pack.swayPhase) * 15 * dt;
+      pack.x += getEffectiveWind() * 12 * dt;
+      pack.x = clamp(pack.x, 5, state.width - 5);
+      const groundY = terrainHeightAt(pack.x);
+      if (pack.y >= groundY - 12) {
+        pack.y = groundY - 12;
+        pack.grounded = true;
+        pack.groundTimer = 0;
+      }
+    } else {
+      const groundY = terrainHeightAt(pack.x);
+      if (pack.y < groundY - 14) {
+        pack.grounded = false;
+        pack.fallSpeed = 120;
+      } else {
+        pack.y = groundY - 12;
+        pack.groundTimer += dt;
+        if (pack.groundTimer > 12) {
+          pack.alive = false;
+          continue;
+        }
+      }
+    }
+
+    for (const worm of state.worms) {
+      if (!worm.alive) continue;
+      const dx = worm.x - pack.x;
+      const dy = worm.y - pack.y;
+      if (Math.sqrt(dx * dx + dy * dy) < 25) {
+        worm.health = Math.min(100, worm.health + pack.healAmount);
+        pack.alive = false;
+        sayComment("heal");
+        break;
+      }
+    }
+  }
+  state.healthPacks = state.healthPacks.filter((p) => p.alive);
+}
+
+function drawHealthPack(pack) {
+  const boxW = 14;
+  const boxH = 12;
+  const domeW = 28;
+  const domeH = 16;
+  const ropeLen = 20;
+
+  ctx.save();
+  ctx.translate(pack.x, pack.y);
+
+  if (!pack.grounded) {
+    const sway = Math.sin(pack.age * 2.5 + pack.swayPhase) * 0.12;
+    ctx.rotate(sway);
+
+    const domeBaseY = -boxH / 2 - ropeLen;
+    const domeTopY = domeBaseY - domeH;
+
+    // Dome canopy — puffy shape with segments
+    const segCount = 8;
+    for (let i = 0; i < segCount; i++) {
+      const t0 = i / segCount;
+      const t1 = (i + 1) / segCount;
+      const x0 = -domeW / 2 + t0 * domeW;
+      const x1 = -domeW / 2 + t1 * domeW;
+      const midX = (x0 + x1) / 2;
+      // Parabolic top edge: higher in the center, lower at edges
+      const normMid = (midX / (domeW / 2));
+      const bulge = (1 - normMid * normMid) * domeH;
+      const topY = domeBaseY - bulge;
+      // Extra puffiness per segment
+      const segBulge = bulge * 0.25;
+
+      ctx.beginPath();
+      ctx.moveTo(x0, domeBaseY);
+      ctx.quadraticCurveTo(midX, topY - segBulge, x1, domeBaseY);
+      ctx.closePath();
+      ctx.fillStyle = i % 2 === 0 ? "#e74c3c" : "#fff";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.15)";
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+
+    // Dome outline
+    ctx.beginPath();
+    ctx.moveTo(-domeW / 2, domeBaseY);
+    for (let i = 0; i <= 20; i++) {
+      const t = i / 20;
+      const px = -domeW / 2 + t * domeW;
+      const norm = (px / (domeW / 2));
+      const py = domeBaseY - (1 - norm * norm) * domeH;
+      ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = "#999";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Ropes — 4 lines from dome edge to box corners
+    ctx.strokeStyle = "#555";
+    ctx.lineWidth = 0.8;
+    const ropeAnchors = [-1, -0.35, 0.35, 1];
+    const boxAnchors = [-boxW / 2, -boxW / 4, boxW / 4, boxW / 2];
+    for (let i = 0; i < 4; i++) {
+      const ax = ropeAnchors[i] * (domeW / 2);
+      ctx.beginPath();
+      ctx.moveTo(ax, domeBaseY);
+      ctx.lineTo(boxAnchors[i], -boxH / 2);
+      ctx.stroke();
+    }
+  }
+
+  // Blink when close to timeout
+  const blink = pack.grounded && pack.groundTimer > 9;
+  if (blink && Math.floor(pack.groundTimer * 4) % 2 === 0) {
+    ctx.restore();
+    return;
+  }
+
+  // Box
+  ctx.fillStyle = "#f0f0f0";
+  ctx.strokeStyle = "#888";
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(-boxW / 2, -boxH / 2, boxW, boxH);
+  ctx.strokeRect(-boxW / 2, -boxH / 2, boxW, boxH);
+
+  // Red cross
+  ctx.fillStyle = "#e74c3c";
+  ctx.fillRect(-1.5, -boxH / 2 + 2, 3, boxH - 4);
+  ctx.fillRect(-boxW / 2 + 2, -1.5, boxW - 4, 3);
+
+  // Heal text
+  ctx.fillStyle = "#06d6a0";
+  ctx.font = "bold 10px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillText(`+${pack.healAmount}`, 0, -boxH / 2 - 4);
+
+  ctx.restore();
+}
+
+function drawHealthPacks() {
+  for (const pack of state.healthPacks) {
+    drawHealthPack(pack);
+  }
 }
 
 function getActiveTeam() {
@@ -793,6 +888,8 @@ function applySnapshotToState(snapshot) {
   state.gameOver = snapshot.gameOver ?? false;
   state.winner = snapshot.winner ?? null;
   state.wind = snapshot.wind ?? 0;
+  state.turnTimer = snapshot.turnTimer ?? state.turnTimer;
+  state.turnTimerMax = snapshot.turnTimerMax ?? state.turnTimerMax;
   updateHud();
 }
 
@@ -984,8 +1081,6 @@ function planShot(worm) {
   }
 
   let best = { score: Infinity, angle: worm.angle, power: 0.6, weaponIndex: 0 };
-  const weaponIndex = 0;
-  const weapon = weapons[weaponIndex];
   const startX = worm.x;
   const startY = worm.y;
   const target = targets.reduce((closest, current) => {
@@ -998,11 +1093,14 @@ function planShot(worm) {
   const angleStart = towardRight ? 15 : 100;
   const angleEnd = towardRight ? 80 : 165;
 
-  for (let angle = angleStart; angle <= angleEnd; angle += aiConfig.angleStep) {
-    for (let power = aiConfig.powerMin; power <= aiConfig.powerMax; power += aiConfig.powerStep) {
-      const score = simulateShot(startX, startY, angle, power, weapon, targets);
-      if (score < best.score) {
-        best = { score, angle, power, weaponIndex };
+  for (let wi = 0; wi < weapons.length; wi++) {
+    const weapon = weapons[wi];
+    for (let angle = angleStart; angle <= angleEnd; angle += aiConfig.angleStep) {
+      for (let power = aiConfig.powerMin; power <= aiConfig.powerMax; power += aiConfig.powerStep) {
+        const score = simulateShot(startX, startY, angle, power, weapon, targets);
+        if (score < best.score) {
+          best = { score, angle, power, weaponIndex: wi };
+        }
       }
     }
   }
@@ -1019,8 +1117,10 @@ function simulateShot(startX, startY, angle, power, weapon, targets) {
   let vy = -Math.sin(rad) * speed;
   let minDist = Infinity;
   const gravity = config.gravity * weapon.gravityScale;
+  const blastR = weapon.explosionRadius || 40;
 
   for (let t = 0; t < aiConfig.simMaxTime; t += aiConfig.simStep) {
+    vx += getEffectiveWind() * WIND_SCALE * aiConfig.simStep;
     vy += gravity * aiConfig.simStep;
     x += vx * aiConfig.simStep;
     y += vy * aiConfig.simStep;
@@ -1032,12 +1132,19 @@ function simulateShot(startX, startY, angle, power, weapon, targets) {
       const dy = target.y - y;
       const dist = Math.hypot(dx, dy);
       if (dist < minDist) minDist = dist;
-      if (dist <= config.wormRadius + 6) {
-        return dist;
-      }
     }
 
-    if (y >= terrainHeightAt(x)) break;
+    const hitTerrain = y >= terrainHeightAt(x);
+    const hitDirect = minDist <= config.wormRadius + 6;
+    if (hitTerrain || hitDirect) break;
+  }
+
+  // Score considers explosion radius: if minDist is within blast range, reward it
+  if (minDist <= blastR) {
+    const falloff = 1 - minDist / blastR;
+    const estimatedDmg = falloff * (weapon.maxDamage || 50);
+    // Lower score = better; negate damage so higher damage = lower score
+    return -estimatedDmg;
   }
 
   return minDist;
@@ -1065,6 +1172,7 @@ function nextTurn() {
   const worm = state.worms[state.currentIndex];
   worm.angle = worm.team === "Rojo" ? 45 : 135;
   state.charge = 0;
+  state.turnTimer = state.turnTimerMax;
   updateHud();
   sayComment("turn", { name: worm.name });
 }
@@ -1179,6 +1287,7 @@ function updateProjectiles(dt) {
   const next = [];
 
   state.projectiles.forEach((p) => {
+    p.vx += getEffectiveWind() * WIND_SCALE * dt;
     p.vy += p.gravity * dt;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
@@ -1404,6 +1513,7 @@ function drawTrajectory() {
   const step = 0.06;
   const maxTime = 2.6;
   for (let t = 0; t < maxTime; t += step) {
+    vx += getEffectiveWind() * WIND_SCALE * step;
     vy += gravity * step;
     x += vx * step;
     y += vy * step;
@@ -1430,135 +1540,460 @@ function drawTrajectory() {
   ctx.restore();
 }
 
+function drawWeaponIcon(weaponId, x, y, scale) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  if (weaponId === "bazooka") {
+    // Tube body
+    ctx.fillStyle = "#556B2F";
+    ctx.fillRect(-14, -3, 28, 6);
+    // Muzzle (wider front)
+    ctx.fillStyle = "#666";
+    ctx.fillRect(14, -4.5, 5, 9);
+    // Rear grip
+    ctx.fillStyle = "#3d4f22";
+    ctx.fillRect(-14, -2, 4, 8);
+    // Highlight stripe
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.fillRect(-10, -3, 20, 2);
+  } else if (weaponId === "grenade") {
+    // Body
+    ctx.fillStyle = "#2d5a27";
+    ctx.beginPath();
+    ctx.arc(0, 2, 7, 0, Math.PI * 2);
+    ctx.fill();
+    // Highlight
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.beginPath();
+    ctx.arc(-2, 0, 3, 0, Math.PI * 2);
+    ctx.fill();
+    // Cap
+    ctx.fillStyle = "#444";
+    ctx.fillRect(-2.5, -6, 5, 4);
+    // Fuse
+    ctx.strokeStyle = "#8B4513";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, -6);
+    ctx.quadraticCurveTo(4, -10, 6, -8);
+    ctx.stroke();
+    // Spark
+    ctx.fillStyle = "#FFD700";
+    ctx.beginPath();
+    ctx.arc(6, -8, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#FFA500";
+    ctx.beginPath();
+    ctx.arc(6, -8, 1, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (weaponId === "mortar") {
+    // Base
+    ctx.fillStyle = "#555";
+    ctx.fillRect(-8, 4, 16, 4);
+    // Barrel (thick short tube)
+    ctx.fillStyle = "#444";
+    ctx.fillRect(-5, -8, 10, 14);
+    // Bore opening
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.ellipse(0, -8, 4, 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Metal highlight
+    ctx.fillStyle = "#777";
+    ctx.fillRect(-5, -4, 3, 10);
+  } else if (weaponId === "sniper") {
+    // Barrel (long thin)
+    ctx.fillStyle = "#222";
+    ctx.fillRect(-16, -1.5, 32, 3);
+    // Stock
+    ctx.fillStyle = "#6B3A2A";
+    ctx.beginPath();
+    ctx.moveTo(-16, -2.5);
+    ctx.lineTo(-16, 4);
+    ctx.lineTo(-10, 2);
+    ctx.lineTo(-10, -2.5);
+    ctx.closePath();
+    ctx.fill();
+    // Scope mount
+    ctx.fillStyle = "#333";
+    ctx.fillRect(2, -5, 8, 3);
+    // Scope lens
+    ctx.fillStyle = "#446";
+    ctx.beginPath();
+    ctx.arc(10, -3.5, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#222";
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    // Scope lens glint
+    ctx.fillStyle = "rgba(150,180,255,0.4)";
+    ctx.beginPath();
+    ctx.arc(9.5, -4, 1, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (weaponId === "pistol") {
+    // Barrel
+    ctx.fillStyle = "#555";
+    ctx.fillRect(-4, -2, 14, 4);
+    // Slide top
+    ctx.fillStyle = "#444";
+    ctx.fillRect(-4, -3, 14, 2);
+    // Grip
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.moveTo(-4, 2);
+    ctx.lineTo(-4, 9);
+    ctx.lineTo(2, 9);
+    ctx.lineTo(4, 2);
+    ctx.closePath();
+    ctx.fill();
+    // Trigger guard
+    ctx.strokeStyle = "#555";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(2, 4, 3, 0, Math.PI);
+    ctx.stroke();
+    // Muzzle
+    ctx.fillStyle = "#333";
+    ctx.fillRect(10, -1.5, 2, 3);
+  }
+
+  ctx.restore();
+}
+
+function drawWormWeapon(worm, rad, weaponId) {
+  ctx.save();
+  ctx.translate(worm.x, worm.y);
+  ctx.rotate(-rad);
+
+  const armLen = 36;
+
+  if (weaponId === "bazooka") {
+    // Tube
+    ctx.fillStyle = "#556B2F";
+    ctx.fillRect(6, -3, 26, 6);
+    ctx.fillStyle = "#666";
+    ctx.fillRect(32, -4, 4, 8);
+    ctx.fillStyle = "#3d4f22";
+    ctx.fillRect(6, -2, 3, 7);
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    ctx.fillRect(10, -3, 18, 2);
+  } else if (weaponId === "grenade") {
+    // Arm holding grenade
+    ctx.strokeStyle = "rgba(0,0,0,0.3)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(8, 0);
+    ctx.lineTo(20, 0);
+    ctx.stroke();
+    // Body
+    ctx.fillStyle = "#2d5a27";
+    ctx.beginPath();
+    ctx.arc(24, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    ctx.beginPath();
+    ctx.arc(22, -1.5, 2, 0, Math.PI * 2);
+    ctx.fill();
+    // Cap + fuse
+    ctx.fillStyle = "#444";
+    ctx.fillRect(22, -7, 4, 3);
+    ctx.strokeStyle = "#8B4513";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(24, -7);
+    ctx.quadraticCurveTo(28, -10, 30, -8);
+    ctx.stroke();
+    ctx.fillStyle = "#FFD700";
+    ctx.beginPath();
+    ctx.arc(30, -8, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (weaponId === "mortar") {
+    // Thick short barrel
+    ctx.fillStyle = "#444";
+    ctx.fillRect(6, -5, 22, 10);
+    // Bore
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.ellipse(28, 0, 2, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Metal highlight
+    ctx.fillStyle = "#777";
+    ctx.fillRect(6, -5, 3, 10);
+    // Base bracket
+    ctx.fillStyle = "#555";
+    ctx.fillRect(6, 3, 16, 3);
+  } else if (weaponId === "sniper") {
+    // Long barrel
+    ctx.fillStyle = "#222";
+    ctx.fillRect(6, -1.5, 30, 3);
+    // Stock
+    ctx.fillStyle = "#6B3A2A";
+    ctx.beginPath();
+    ctx.moveTo(6, -2.5);
+    ctx.lineTo(6, 4);
+    ctx.lineTo(12, 2);
+    ctx.lineTo(12, -2.5);
+    ctx.closePath();
+    ctx.fill();
+    // Scope
+    ctx.fillStyle = "#333";
+    ctx.fillRect(20, -5, 8, 3);
+    ctx.fillStyle = "#446";
+    ctx.beginPath();
+    ctx.arc(28, -3.5, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(150,180,255,0.35)";
+    ctx.beginPath();
+    ctx.arc(27.5, -4, 0.8, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (weaponId === "pistol") {
+    // Barrel
+    ctx.fillStyle = "#555";
+    ctx.fillRect(8, -2, 14, 4);
+    ctx.fillStyle = "#444";
+    ctx.fillRect(8, -3, 14, 2);
+    // Grip
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.moveTo(8, 2);
+    ctx.lineTo(8, 8);
+    ctx.lineTo(14, 8);
+    ctx.lineTo(16, 2);
+    ctx.closePath();
+    ctx.fill();
+    // Muzzle
+    ctx.fillStyle = "#333";
+    ctx.fillRect(22, -1.5, 2, 3);
+  }
+
+  // Aim dot at tip
+  ctx.fillStyle = "#ffd166";
+  ctx.beginPath();
+  ctx.arc(armLen, 0, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
 function drawWorm(worm, isCurrent) {
   if (!worm.alive) return;
   const r = config.wormRadius;
   const rad = (worm.angle * Math.PI) / 180;
   const facingRight = Math.cos(rad) >= 0;
   const fd = facingRight ? 1 : -1;
+  const isRojo = worm.team === "Rojo";
 
-  // Shadow
-  ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+  // --- Shadow (more pronounced) ---
+  ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
   ctx.beginPath();
-  ctx.ellipse(worm.x, worm.y + r + 3, r * 0.85, 3.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(worm.x, worm.y + r + 4, r * 0.95, 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Tail (small bump behind the body)
-  ctx.fillStyle = worm.color;
-  ctx.beginPath();
-  ctx.ellipse(worm.x - fd * r * 0.7, worm.y + 4, 5, 4, -fd * 0.3, 0, Math.PI * 2);
-  ctx.fill();
+  // --- Boots (2 small rounded rects at the base) ---
+  const bootW = 6, bootH = 5, bootGap = 3;
+  const bootY = worm.y + r * 0.95;
+  for (let side = -1; side <= 1; side += 2) {
+    const bx = worm.x + side * bootGap - bootW / 2;
+    // Sole (darker)
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.roundRect(bx, bootY + bootH - 2, bootW, 2.5, 1);
+    ctx.fill();
+    // Boot body
+    ctx.fillStyle = "#333";
+    ctx.beginPath();
+    ctx.roundRect(bx, bootY, bootW, bootH, [2, 2, 1, 1]);
+    ctx.fill();
+    // Boot outline
+    ctx.strokeStyle = "#222";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(bx, bootY, bootW, bootH + 0.5, [2, 2, 1, 1]);
+    ctx.stroke();
+  }
 
-  // Body - oval, slightly taller than wide
+  // --- Body (chunky ellipse with thick cartoon outline) ---
+  const bodyW = r * 1.0;
+  const bodyH = r * 1.2;
   const bodyGrad = ctx.createRadialGradient(
-    worm.x + fd * 2, worm.y - 5, 2,
-    worm.x, worm.y, r + 1
+    worm.x + fd * 3, worm.y - 6, 2,
+    worm.x, worm.y, r * 1.25
   );
-  bodyGrad.addColorStop(0, "rgba(255, 255, 255, 0.5)");
-  bodyGrad.addColorStop(0.4, worm.color);
-  bodyGrad.addColorStop(1, "rgba(0, 0, 0, 0.3)");
+  bodyGrad.addColorStop(0, "rgba(255, 255, 255, 0.45)");
+  bodyGrad.addColorStop(0.35, worm.color);
+  bodyGrad.addColorStop(1, isRojo ? "#a82040" : "#0a6a8f");
   ctx.fillStyle = bodyGrad;
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.3)";
-  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.ellipse(worm.x, worm.y, r * 0.9, r * 1.15, 0, 0, Math.PI * 2);
+  ctx.ellipse(worm.x, worm.y, bodyW, bodyH, 0, 0, Math.PI * 2);
   ctx.fill();
+
+  // Thick cartoon outline
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(worm.x, worm.y, bodyW, bodyH, 0, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Belly highlight
-  ctx.fillStyle = "rgba(255, 255, 255, 0.13)";
+  // Belly highlight (more visible)
+  ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
   ctx.beginPath();
-  ctx.ellipse(worm.x + fd * 1, worm.y + 3, r * 0.5, r * 0.3, 0, 0, Math.PI * 2);
+  ctx.ellipse(worm.x + fd * 1.5, worm.y + 4, r * 0.55, r * 0.32, 0.1 * fd, 0, Math.PI * 2);
   ctx.fill();
 
-  // Headband
-  const bandColor = worm.team === "Rojo" ? "#a93226" : "#1a5276";
-  const bandY = worm.y - r * 0.75;
-  ctx.fillStyle = bandColor;
+  // --- Military Helmet ---
+  const helmetColor = isRojo ? "#a93226" : "#1a5276";
+  const helmetRim = isRojo ? "#7b241c" : "#113d5a";
+  const helmetY = worm.y - bodyH * 0.55;
+  const helmetW = r * 0.85;
+  const helmetH = r * 0.55;
+
+  // Helmet dome (squashed semicircle)
+  ctx.fillStyle = helmetColor;
   ctx.beginPath();
-  ctx.ellipse(worm.x, bandY, r * 0.65, 3.5, 0, Math.PI, 0);
-  ctx.fill();
-  // Knot on the side
-  ctx.beginPath();
-  ctx.ellipse(worm.x - fd * r * 0.55, bandY + 1, 3, 2.5, -fd * 0.5, 0, Math.PI * 2);
+  ctx.ellipse(worm.x, helmetY, helmetW, helmetH, 0, Math.PI, 0);
   ctx.fill();
 
-  // Eyes
-  const eyeCenterX = worm.x + fd * 3.5;
-  const eyeY = worm.y - 2.5;
-  const eyeGap = 3.2;
+  // Helmet rim (thicker band at the base)
+  ctx.fillStyle = helmetRim;
+  ctx.beginPath();
+  ctx.ellipse(worm.x, helmetY, helmetW * 1.08, 3.5, 0, Math.PI, 0);
+  ctx.fill();
+  ctx.fillStyle = helmetRim;
+  ctx.fillRect(worm.x - helmetW * 1.08, helmetY - 3.5, helmetW * 2.16, 4);
+
+  // Helmet outline
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(worm.x, helmetY, helmetW, helmetH, 0, Math.PI, 0);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(worm.x - helmetW * 1.08, helmetY);
+  ctx.lineTo(worm.x + helmetW * 1.08, helmetY);
+  ctx.stroke();
+
+  // Helmet shine/highlight
+  ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
+  ctx.beginPath();
+  ctx.ellipse(worm.x - helmetW * 0.25, helmetY - helmetH * 0.4, helmetW * 0.3, helmetH * 0.25, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Eyes (big, expressive) ---
+  const eyeCenterX = worm.x + fd * 4;
+  const eyeY = worm.y - 2;
+  const eyeGap = 4;
   const eye1x = eyeCenterX - eyeGap * fd;
   const eye2x = eyeCenterX + eyeGap * fd;
+  const eyeRx = 4, eyeRy = 4.8;
 
   // Eye whites
-  ctx.fillStyle = "#f0f0f0";
-  ctx.strokeStyle = "rgba(0,0,0,0.2)";
-  ctx.lineWidth = 0.5;
+  ctx.fillStyle = "#f5f5f5";
   ctx.beginPath();
-  ctx.ellipse(eye1x, eyeY, 3, 3.8, 0, 0, Math.PI * 2);
+  ctx.ellipse(eye1x, eyeY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(eye2x, eyeY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eye outlines
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(eye1x, eyeY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
   ctx.stroke();
   ctx.beginPath();
-  ctx.ellipse(eye2x, eyeY, 3, 3.8, 0, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.ellipse(eye2x, eyeY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
   ctx.stroke();
 
   // Pupils - follow aim direction
-  const pShift = 1.2;
+  const pShift = 1.8;
   const pDx = Math.cos(rad) * pShift;
   const pDy = -Math.sin(rad) * pShift;
-  ctx.fillStyle = "#1a1a1a";
+  const pupilR = 2.2;
+  ctx.fillStyle = "#111";
   ctx.beginPath();
-  ctx.arc(eye1x + pDx, eyeY + pDy, 1.6, 0, Math.PI * 2);
+  ctx.arc(eye1x + pDx, eyeY + pDy, pupilR, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(eye2x + pDx, eyeY + pDy, 1.6, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Eye shine
-  ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.beginPath();
-  ctx.arc(eye1x - 0.8, eyeY - 1.5, 0.8, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(eye2x - 0.8, eyeY - 1.5, 0.8, 0, Math.PI * 2);
+  ctx.arc(eye2x + pDx, eyeY + pDy, pupilR, 0, Math.PI * 2);
   ctx.fill();
 
-  // Eyebrows
+  // Eye shine (bigger, more noticeable)
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(eye1x - 1, eyeY - 1.8, 1.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(eye2x - 1, eyeY - 1.8, 1.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- Eyebrows (expressive) ---
+  ctx.strokeStyle = "#2c1810";
+  ctx.lineCap = "round";
   if (isCurrent) {
-    ctx.strokeStyle = "rgba(40, 20, 10, 0.7)";
+    // Angry/determined eyebrows
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(eye1x - 4, eyeY - 6);
+    ctx.lineTo(eye1x + 3, eyeY - 7.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(eye2x - 3, eyeY - 7.5);
+    ctx.lineTo(eye2x + 4, eyeY - 6);
+    ctx.stroke();
+  } else {
+    // Neutral subtle eyebrows
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(eye1x - 3.5, eyeY - 6.5);
+    ctx.lineTo(eye1x + 3, eyeY - 6.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(eye2x - 3, eyeY - 6.5);
+    ctx.lineTo(eye2x + 3.5, eyeY - 6.5);
+    ctx.stroke();
+  }
+
+  // --- Mouth ---
+  const mouthX = worm.x + fd * 3.5;
+  const mouthY = worm.y + 7;
+  if (isCurrent) {
+    // Determined grin with teeth
+    ctx.strokeStyle = "#3a1a0a";
     ctx.lineWidth = 1.5;
     ctx.lineCap = "round";
     ctx.beginPath();
-    ctx.moveTo(eye1x - 3, eyeY - 5.5);
-    ctx.lineTo(eye1x + 2.5, eyeY - 6.5);
+    ctx.arc(mouthX, mouthY, 4, 0.1, Math.PI - 0.1);
     ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(eye2x - 2.5, eyeY - 6.5);
-    ctx.lineTo(eye2x + 3, eyeY - 5.5);
-    ctx.stroke();
-  }
-
-  // Mouth
-  ctx.strokeStyle = "rgba(50, 25, 15, 0.5)";
-  ctx.lineWidth = 1;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  if (isCurrent) {
-    ctx.arc(worm.x + fd * 3, worm.y + 5.5, 3, 0.15, Math.PI - 0.15);
+    // Teeth (2-3 small white rectangles)
+    ctx.fillStyle = "#fff";
+    for (let t = -1; t <= 1; t++) {
+      ctx.fillRect(mouthX + t * 2.5 - 1, mouthY, 2, 2.2);
+    }
+    // Teeth outline
+    ctx.strokeStyle = "#3a1a0a";
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(mouthX - 3.5, mouthY, 7, 2.2);
   } else {
-    ctx.moveTo(worm.x + fd * 1, worm.y + 5.5);
-    ctx.lineTo(worm.x + fd * 5, worm.y + 5.5);
+    // Neutral line
+    ctx.strokeStyle = "#3a1a0a";
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(mouthX - 3, mouthY);
+    ctx.lineTo(mouthX + 3, mouthY);
+    ctx.stroke();
   }
-  ctx.stroke();
 
-  // HP label
+  // --- HP label (same logic) ---
   const hpText = `${worm.health}`;
   ctx.font = "bold 10px Trebuchet MS";
   ctx.textAlign = "center";
   const textWidth = ctx.measureText(hpText).width;
   const labelX = worm.x - textWidth / 2 - 5;
-  const labelY = worm.y - r * 1.15 - 20;
+  const labelY = worm.y - bodyH - 22;
   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
   const labelW = textWidth + 10;
   const labelH = 14;
@@ -1583,20 +2018,10 @@ function drawWorm(worm, isCurrent) {
   ctx.fillStyle = "rgba(255,255,255,0.5)";
   ctx.fillText(worm.name, worm.x, labelY - 2);
 
-  // Aim line
+  // Weapon + aim dot
   if (isCurrent && !state.gameOver) {
-    ctx.strokeStyle = "#ffd166";
-    ctx.lineWidth = 2;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(worm.x, worm.y);
-    ctx.lineTo(worm.x + Math.cos(rad) * 36, worm.y - Math.sin(rad) * 36);
-    ctx.stroke();
-    // Aim dot
-    ctx.fillStyle = "#ffd166";
-    ctx.beginPath();
-    ctx.arc(worm.x + Math.cos(rad) * 36, worm.y - Math.sin(rad) * 36, 3, 0, Math.PI * 2);
-    ctx.fill();
+    const weaponId = getCurrentWeapon().id;
+    drawWormWeapon(worm, rad, weaponId);
   }
 
   drawPowerBar(worm, isCurrent);
@@ -1679,6 +2104,992 @@ function drawExplosions() {
     });
   });
 }
+const hudWeaponSlots = [];
+
+function drawRoundedRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawTeamBanners() {
+  const rojoAlive = state.worms.filter((w) => w.team === "Rojo" && w.alive).length;
+  const azulAlive = state.worms.filter((w) => w.team === "Azul" && w.alive).length;
+  const rojoTotal = state.worms.filter((w) => w.team === "Rojo").length;
+  const azulTotal = state.worms.filter((w) => w.team === "Azul").length;
+  const bw = 140;
+  const bh = 32;
+  const margin = 12;
+  const r = 6;
+  const activeTeam = getActiveTeam();
+
+  // Rojo banner (left)
+  const rx = margin;
+  const ry = margin;
+  ctx.save();
+  const rojoActive = activeTeam === "Rojo";
+  ctx.fillStyle = rojoActive ? "rgba(239, 71, 111, 0.85)" : "rgba(239, 71, 111, 0.5)";
+  drawRoundedRect(rx, ry, bw, bh, r);
+  ctx.fill();
+  if (rojoActive) {
+    ctx.strokeStyle = "#ffd166";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.font = "bold 13px Trebuchet MS";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#fff";
+  ctx.fillText("ROJO", rx + 10, ry + 20);
+  ctx.font = "12px Trebuchet MS";
+  ctx.textAlign = "right";
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillText(`${rojoAlive}/${rojoTotal}`, rx + bw - 10, ry + 20);
+  ctx.restore();
+
+  // Azul banner (right)
+  const ax = state.width - margin - bw;
+  const ay = margin;
+  ctx.save();
+  const azulActive = activeTeam === "Azul";
+  ctx.fillStyle = azulActive ? "rgba(17, 138, 178, 0.85)" : "rgba(17, 138, 178, 0.5)";
+  drawRoundedRect(ax, ay, bw, bh, r);
+  ctx.fill();
+  if (azulActive) {
+    ctx.strokeStyle = "#ffd166";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.font = "bold 13px Trebuchet MS";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#fff";
+  ctx.fillText("AZUL", ax + 10, ay + 20);
+  ctx.font = "12px Trebuchet MS";
+  ctx.textAlign = "right";
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillText(`${azulAlive}/${azulTotal}`, ax + bw - 10, ay + 20);
+  ctx.restore();
+}
+
+function drawTurnTimer() {
+  const timer = Math.max(0, Math.ceil(state.turnTimer));
+  const cx = state.width / 2;
+  const ty = 12;
+  const tw = 60;
+  const th = 30;
+  const r = 8;
+  const urgent = state.turnTimer < 5;
+
+  ctx.save();
+  ctx.fillStyle = urgent ? "rgba(200, 30, 30, 0.85)" : "rgba(15, 23, 42, 0.8)";
+  drawRoundedRect(cx - tw / 2, ty, tw, th, r);
+  ctx.fill();
+  if (urgent) {
+    ctx.strokeStyle = "#ef476f";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = "rgba(255, 209, 102, 0.5)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.font = "bold 16px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillStyle = urgent ? "#ffd166" : "#f8f8fb";
+  ctx.fillText(`${timer}`, cx, ty + 22);
+  ctx.restore();
+}
+
+// ==================== Animated Clouds ====================
+
+function initClouds() {
+  state.clouds = [];
+  state.windGusts = [];
+  state.gustExtra = 0;
+  state.gustTimer = 15 + Math.random() * 25;
+  const count = 6 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < count; i++) {
+    state.clouds.push(createCloud(true));
+  }
+}
+
+function createCloud(initial) {
+  const w = state.width;
+  const h = state.height;
+  const cloudW = 60 + Math.random() * 100;
+  const puffs = [];
+  const puffCount = 3 + Math.floor(Math.random() * 3);
+  for (let p = 0; p < puffCount; p++) {
+    puffs.push({
+      ox: (p - (puffCount - 1) / 2) * (cloudW / puffCount) * 0.7 + (Math.random() - 0.5) * 10,
+      oy: (Math.random() - 0.5) * 12,
+      rx: 18 + Math.random() * 22,
+      ry: 12 + Math.random() * 10,
+    });
+  }
+  return {
+    x: initial ? Math.random() * w : (Math.random() > 0.5 ? -cloudW : w + cloudW),
+    y: h * 0.06 + Math.random() * h * 0.28,
+    speed: 8 + Math.random() * 15,
+    alpha: 0.35 + Math.random() * 0.3,
+    puffs: puffs,
+    width: cloudW,
+    depth: 0.5 + Math.random() * 0.5,
+  };
+}
+
+function updateClouds(dt) {
+  const windDrift = getEffectiveWind() * 3;
+  for (let i = state.clouds.length - 1; i >= 0; i--) {
+    const c = state.clouds[i];
+    c.x += (c.speed + windDrift * c.depth) * dt;
+    // Wrap around
+    if (c.x - c.width > state.width + 50) {
+      state.clouds[i] = createCloud(false);
+      state.clouds[i].x = -state.clouds[i].width;
+    } else if (c.x + c.width < -50) {
+      state.clouds[i] = createCloud(false);
+      state.clouds[i].x = state.width + state.clouds[i].width;
+    }
+  }
+}
+
+function drawClouds() {
+  ctx.save();
+  for (const c of state.clouds) {
+    ctx.globalAlpha = c.alpha;
+    for (const p of c.puffs) {
+      const grad = ctx.createRadialGradient(
+        c.x + p.ox, c.y + p.oy, 2,
+        c.x + p.ox, c.y + p.oy, p.rx
+      );
+      grad.addColorStop(0, "rgba(255, 255, 255, 0.9)");
+      grad.addColorStop(0.6, "rgba(255, 255, 255, 0.5)");
+      grad.addColorStop(1, "rgba(255, 255, 255, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(c.x + p.ox, c.y + p.oy, p.rx, p.ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// ==================== Wind Gusts (comic style) ====================
+
+function updateWindGusts(dt) {
+  state.gustTimer -= dt;
+  if (state.gustTimer <= 0) {
+    state.gustTimer = 20 + Math.random() * 40;
+    spawnWindGust();
+  }
+  // Compute gustExtra from active gusts
+  let extra = 0;
+  for (let i = state.windGusts.length - 1; i >= 0; i--) {
+    const g = state.windGusts[i];
+    g.life -= dt;
+    if (g.life <= 0) {
+      state.windGusts.splice(i, 1);
+      continue;
+    }
+    g.progress = 1 - g.life / g.maxLife;
+    // Ramp: ease-in 20%, full middle, ease-out 20%
+    let intensity = 1;
+    if (g.progress < 0.2) intensity = g.progress / 0.2;
+    else if (g.progress > 0.8) intensity = (1 - g.progress) / 0.2;
+    extra += g.extraWind * intensity;
+    for (const line of g.lines) {
+      line.x += g.dir * g.speed * dt;
+    }
+  }
+  state.gustExtra = extra;
+}
+
+function getEffectiveWind() {
+  return state.wind + state.gustExtra;
+}
+
+function spawnWindGust() {
+  // Direction follows the current wind; if wind is 0 pick random
+  const w = state.wind;
+  const dir = w > 0 ? 1 : w < 0 ? -1 : (Math.random() > 0.5 ? 1 : -1);
+  const gustStrength = 3 + Math.random() * 5;
+
+  const lineCount = 8 + Math.floor(Math.random() * 8);
+  const lines = [];
+  const startX = dir > 0 ? -50 : state.width + 50;
+  const bandY = state.height * 0.15 + Math.random() * state.height * 0.5;
+  const bandH = 80 + Math.random() * 120;
+  for (let i = 0; i < lineCount; i++) {
+    lines.push({
+      x: startX + (Math.random() - 0.5) * 60,
+      y: bandY + Math.random() * bandH - bandH / 2,
+      len: 30 + Math.random() * 60,
+      thickness: 1 + Math.random() * 2,
+      alpha: 0.3 + Math.random() * 0.4,
+      waveSeed: Math.random() * Math.PI * 2,
+    });
+  }
+
+  const duration = 1 + Math.random() * 3; // 1-4 seconds
+  state.windGusts.push({
+    dir: dir,
+    speed: 250 + Math.random() * 200,
+    lines: lines,
+    life: duration,
+    maxLife: duration,
+    progress: 0,
+    extraWind: dir * gustStrength,
+  });
+}
+
+function drawWindGusts() {
+  ctx.save();
+  ctx.lineCap = "round";
+  for (const g of state.windGusts) {
+    const fadeIn = Math.min(1, g.progress * 4);
+    const fadeOut = Math.min(1, g.life / 0.5);
+    const opacity = fadeIn * fadeOut;
+    for (const line of g.lines) {
+      const wave = Math.sin(line.waveSeed + g.progress * 6) * 3;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${line.alpha * opacity})`;
+      ctx.lineWidth = line.thickness;
+      ctx.beginPath();
+      ctx.moveTo(line.x, line.y + wave);
+      ctx.quadraticCurveTo(
+        line.x + g.dir * line.len * 0.5, line.y + wave - 2,
+        line.x + g.dir * line.len, line.y + wave + 1
+      );
+      ctx.stroke();
+
+      // Comic-style small swoosh marks
+      if (line.thickness > 1.5) {
+        ctx.strokeStyle = `rgba(220, 235, 255, ${line.alpha * opacity * 0.6})`;
+        ctx.lineWidth = 0.8;
+        const mx = line.x + g.dir * line.len * 0.3;
+        const my = line.y + wave;
+        ctx.beginPath();
+        ctx.moveTo(mx, my - 4);
+        ctx.lineTo(mx + g.dir * 8, my - 3);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(mx, my + 4);
+        ctx.lineTo(mx + g.dir * 8, my + 3);
+        ctx.stroke();
+      }
+    }
+
+    // Comic "WHOOSH" text during peak
+    if (g.progress > 0.2 && g.progress < 0.6) {
+      const textOpacity = opacity * 0.5;
+      const centerX = state.width / 2 + g.dir * 50;
+      const centerY = g.lines[0] ? g.lines[0].y - 20 : state.height * 0.3;
+      ctx.save();
+      ctx.font = "bold italic 18px Trebuchet MS";
+      ctx.textAlign = "center";
+      ctx.fillStyle = `rgba(255, 255, 255, ${textOpacity})`;
+      ctx.strokeStyle = `rgba(0, 0, 0, ${textOpacity * 0.5})`;
+      ctx.lineWidth = 2;
+      const angle = g.dir * -0.08;
+      ctx.translate(centerX, centerY);
+      ctx.rotate(angle);
+      ctx.strokeText("WHOOSH!", 0, 0);
+      ctx.fillText("WHOOSH!", 0, 0);
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
+function drawWindIndicator() {
+  const cx = state.width / 2;
+  const wy = 50;
+  const wind = getEffectiveWind();
+  const absWind = Math.abs(wind);
+  const maxWind = 8;
+
+  ctx.save();
+  const bgW = 130;
+  const bgH = 22;
+  ctx.fillStyle = "rgba(15, 23, 42, 0.7)";
+  drawRoundedRect(cx - bgW / 2, wy, bgW, bgH, 5);
+  ctx.fill();
+
+  ctx.font = "10px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "rgba(255,255,255,0.6)";
+  ctx.fillText("VIENTO", cx, wy + 14);
+
+  // Wind bar
+  const barW = 40;
+  const barH = 4;
+  const barX = cx - barW / 2;
+  const barY = wy + bgH - 6;
+  ctx.fillStyle = "rgba(255,255,255,0.15)";
+  ctx.fillRect(barX, barY, barW, barH);
+
+  if (wind !== 0) {
+    const fillW = (absWind / maxWind) * (barW / 2);
+    const color = wind > 0 ? "#06d6a0" : "#ef476f";
+    ctx.fillStyle = color;
+    if (wind > 0) {
+      ctx.fillRect(cx, barY, fillW, barH);
+    } else {
+      ctx.fillRect(cx - fillW, barY, fillW, barH);
+    }
+
+    // Arrow
+    const arrowX = wind > 0 ? cx + bgW / 2 - 18 : cx - bgW / 2 + 18;
+    const dir = wind > 0 ? 1 : -1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(arrowX - dir * 6, wy + bgH / 2);
+    ctx.lineTo(arrowX + dir * 6, wy + bgH / 2);
+    ctx.lineTo(arrowX + dir * 2, wy + bgH / 2 - 4);
+    ctx.moveTo(arrowX + dir * 6, wy + bgH / 2);
+    ctx.lineTo(arrowX + dir * 2, wy + bgH / 2 + 4);
+    ctx.stroke();
+  }
+
+  // Wind speed text
+  ctx.font = "bold 10px Trebuchet MS";
+  ctx.fillStyle = "#ffd166";
+  ctx.textAlign = "left";
+  ctx.fillText(`${absWind}`, cx + bgW / 2 - 12, wy + 14);
+  ctx.textAlign = "right";
+  ctx.fillText(`${absWind}`, cx - bgW / 2 + 12, wy + 14);
+
+  ctx.restore();
+}
+
+function drawWeaponBar() {
+  const locked = state.projectiles.length > 0 || state.charging || state.gameOver;
+  const slotW = 70;
+  const slotH = 44;
+  const gap = 6;
+  const totalW = weapons.length * slotW + (weapons.length - 1) * gap;
+  const startX = (state.width - totalW) / 2;
+  const startY = state.height - slotH - 50;
+  const r = 6;
+
+  hudWeaponSlots.length = 0;
+
+  ctx.save();
+  // Background strip
+  ctx.fillStyle = "rgba(10, 14, 24, 0.6)";
+  drawRoundedRect(startX - 8, startY - 4, totalW + 16, slotH + 8, 8);
+  ctx.fill();
+
+  for (let i = 0; i < weapons.length; i++) {
+    const x = startX + i * (slotW + gap);
+    const y = startY;
+    const isActive = i === state.weaponIndex;
+
+    hudWeaponSlots.push({ x, y, w: slotW, h: slotH, index: i });
+
+    if (isActive) {
+      ctx.fillStyle = "rgba(255, 209, 102, 0.25)";
+      ctx.strokeStyle = "#ffd166";
+      ctx.lineWidth = 2;
+    } else {
+      ctx.fillStyle = locked ? "rgba(15, 24, 40, 0.4)" : "rgba(15, 24, 40, 0.65)";
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+      ctx.lineWidth = 1;
+    }
+
+    drawRoundedRect(x, y, slotW, slotH, r);
+    ctx.fill();
+    ctx.stroke();
+
+    // Key number (top-left corner)
+    ctx.font = "bold 9px Trebuchet MS";
+    ctx.textAlign = "left";
+    ctx.fillStyle = isActive ? "#ffd166" : "rgba(255,255,255,0.5)";
+    ctx.fillText(`${i + 1}`, x + 4, y + 10);
+
+    // Weapon icon (centered in upper area)
+    const iconAlpha = locked && !isActive ? 0.4 : 1;
+    ctx.globalAlpha = iconAlpha;
+    drawWeaponIcon(weapons[i].id, x + slotW / 2, y + 20, 0.85);
+    ctx.globalAlpha = 1;
+
+    // Weapon name (below icon)
+    ctx.font = "9px Trebuchet MS";
+    ctx.textAlign = "center";
+    ctx.fillStyle = isActive ? "#fff" : (locked ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.75)");
+    ctx.fillText(weapons[i].name, x + slotW / 2, y + 39);
+  }
+  ctx.restore();
+}
+
+function drawStatusBar() {
+  const worm = state.worms[state.currentIndex];
+  if (!worm) return;
+
+  const barY = state.height - 38;
+  const margin = 12;
+
+  ctx.save();
+  // Background
+  ctx.fillStyle = "rgba(10, 14, 24, 0.6)";
+  drawRoundedRect(margin, barY - 4, state.width - margin * 2, 30, 6);
+  ctx.fill();
+
+  // Worm name + HP (left)
+  ctx.font = "bold 12px Trebuchet MS";
+  ctx.textAlign = "left";
+  const teamColor = worm.team === "Rojo" ? "#ef476f" : "#118ab2";
+  ctx.fillStyle = teamColor;
+  ctx.fillText(`${worm.name}`, margin + 10, barY + 16);
+
+  ctx.font = "12px Trebuchet MS";
+  ctx.fillStyle = "#f8f8fb";
+  ctx.fillText(`HP ${worm.health}`, margin + 90, barY + 16);
+
+  // Power bar (center)
+  const pbX = state.width / 2 - 100;
+  const pbW = 200;
+  const pbH = 10;
+  const pbY = barY + 7;
+
+  ctx.fillStyle = "rgba(15, 24, 40, 0.8)";
+  ctx.fillRect(pbX, pbY, pbW, pbH);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(pbX, pbY, pbW, pbH);
+
+  if (state.charge > 0) {
+    const fillW = pbW * clamp(state.charge, 0, 1);
+    const grad = ctx.createLinearGradient(pbX, pbY, pbX + pbW, pbY);
+    grad.addColorStop(0, "#06d6a0");
+    grad.addColorStop(0.6, "#ffd166");
+    grad.addColorStop(1, "#ef476f");
+    ctx.fillStyle = grad;
+    ctx.fillRect(pbX, pbY, fillW, pbH);
+  }
+
+  // Segments
+  for (let i = 1; i < 10; i++) {
+    const sx = pbX + (pbW / 10) * i;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.beginPath();
+    ctx.moveTo(sx, pbY);
+    ctx.lineTo(sx, pbY + pbH);
+    ctx.stroke();
+  }
+
+  // Power % (right)
+  ctx.font = "bold 12px Trebuchet MS";
+  ctx.textAlign = "right";
+  ctx.fillStyle = state.charging ? "#ffd166" : "#f8f8fb";
+  ctx.fillText(`${Math.round(state.charge * 100)}%`, state.width - margin - 10, barY + 16);
+
+  // Weapon name (right of power)
+  ctx.font = "11px Trebuchet MS";
+  ctx.textAlign = "right";
+  ctx.fillStyle = "rgba(255,255,255,0.6)";
+  const weapon = getCurrentWeapon();
+  ctx.fillText(weapon.name, state.width - margin - 55, barY + 16);
+
+  ctx.restore();
+}
+
+function drawCommentatorAvatar(cx, cy, scale) {
+  const s = scale;
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Body/shirt
+  ctx.fillStyle = "#2c3e50";
+  ctx.beginPath();
+  ctx.ellipse(0, s * 18, s * 14, s * 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Shirt collar accent
+  ctx.fillStyle = "#e74c3c";
+  ctx.beginPath();
+  ctx.moveTo(-s * 5, s * 8);
+  ctx.lineTo(0, s * 14);
+  ctx.lineTo(s * 5, s * 8);
+  ctx.closePath();
+  ctx.fill();
+
+  // Head
+  const headGrad = ctx.createRadialGradient(-s * 2, -s * 6, s * 2, 0, -s * 2, s * 14);
+  headGrad.addColorStop(0, "#f5cba7");
+  headGrad.addColorStop(1, "#d4a574");
+  ctx.fillStyle = headGrad;
+  ctx.beginPath();
+  ctx.ellipse(0, -s * 2, s * 11, s * 13, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Hair
+  ctx.fillStyle = "#1a1a2e";
+  ctx.beginPath();
+  ctx.ellipse(0, -s * 12, s * 12, s * 6, 0, Math.PI, 0);
+  ctx.fill();
+  // Side hair
+  ctx.beginPath();
+  ctx.ellipse(-s * 11, -s * 4, s * 3, s * 7, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(s * 11, -s * 4, s * 3, s * 7, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Headphones band
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = s * 2.5;
+  ctx.beginPath();
+  ctx.arc(0, -s * 8, s * 14, Math.PI + 0.3, -0.3);
+  ctx.stroke();
+
+  // Headphone ear pads
+  ctx.fillStyle = "#444";
+  ctx.beginPath();
+  ctx.ellipse(-s * 13, -s * 2, s * 4, s * 6, 0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#555";
+  ctx.beginPath();
+  ctx.ellipse(-s * 13, -s * 2, s * 2.5, s * 4, 0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#444";
+  ctx.beginPath();
+  ctx.ellipse(s * 13, -s * 2, s * 4, s * 6, -0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#555";
+  ctx.beginPath();
+  ctx.ellipse(s * 13, -s * 2, s * 2.5, s * 4, -0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.ellipse(-s * 4, -s * 3, s * 3, s * 3.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(s * 4, -s * 3, s * 3, s * 3.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#1a1a2e";
+  ctx.beginPath();
+  ctx.arc(-s * 3.5, -s * 2.5, s * 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(s * 4.5, -s * 2.5, s * 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eye shine
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.beginPath();
+  ctx.arc(-s * 4.2, -s * 3.5, s * 0.7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(s * 3.8, -s * 3.5, s * 0.7, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Mouth - excited open smile
+  ctx.fillStyle = "#c0392b";
+  ctx.beginPath();
+  ctx.arc(0, s * 5, s * 4, 0.1, Math.PI - 0.1);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.rect(-s * 2.5, s * 4.5, s * 5, s * 1.5);
+  ctx.fill();
+
+  // Microphone boom
+  ctx.strokeStyle = "#666";
+  ctx.lineWidth = s * 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-s * 12, s * 2);
+  ctx.quadraticCurveTo(-s * 10, s * 10, -s * 2, s * 8);
+  ctx.stroke();
+
+  // Mic head
+  ctx.fillStyle = "#333";
+  ctx.beginPath();
+  ctx.ellipse(-s * 2, s * 8, s * 2.5, s * 2, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#888";
+  ctx.beginPath();
+  ctx.arc(-s * 2, s * 8, s * 1.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawSpeechBubble(bx, by, bw, bh, tailX, tailY) {
+  const r = 10;
+  ctx.beginPath();
+  ctx.moveTo(bx + r, by);
+  ctx.lineTo(bx + bw - r, by);
+  ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r);
+  ctx.lineTo(bx + bw, by + bh - r);
+  ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r, by + bh);
+
+  // Tail from bottom-left area
+  ctx.lineTo(bx + 40, by + bh);
+  ctx.lineTo(tailX, tailY);
+  ctx.lineTo(bx + 20, by + bh);
+
+  ctx.lineTo(bx + r, by + bh);
+  ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - r);
+  ctx.lineTo(bx, by + r);
+  ctx.quadraticCurveTo(bx, by, bx + r, by);
+  ctx.closePath();
+}
+
+function wrapText(text, maxWidth) {
+  const words = text.split(" ");
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    const test = current ? current + " " + word : word;
+    if (ctx.measureText(test).width > maxWidth && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function drawCommentary() {
+  if (commentaryState.timer <= 0 || !commentaryState.text) return;
+
+  const alpha = commentaryState.timer < 0.8
+    ? commentaryState.timer / 0.8
+    : 1;
+
+  const popScale = commentaryState.popTimer > 0
+    ? 1 + commentaryState.popTimer * 0.15
+    : 1;
+
+  const avatarX = 38;
+  const avatarY = isMobile ? state.height - 180 : state.height - 110;
+  const avatarScale = 1.6;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // Avatar circle background
+  ctx.fillStyle = "rgba(10, 14, 24, 0.75)";
+  ctx.beginPath();
+  ctx.arc(avatarX, avatarY, 32, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#ffd166";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  drawCommentatorAvatar(avatarX, avatarY, avatarScale);
+
+  // Speech bubble
+  ctx.font = "bold 12px Trebuchet MS";
+  const maxTextW = 200;
+  const lines = wrapText(commentaryState.text, maxTextW);
+  const lineH = 16;
+  const padding = 10;
+  const bubbleW = maxTextW + padding * 2;
+  const bubbleH = lines.length * lineH + padding * 2;
+  const bubbleX = avatarX + 38;
+  const bubbleY = avatarY - bubbleH - 20;
+  const tailX = avatarX + 20;
+  const tailY = avatarY - 18;
+
+  ctx.save();
+  if (popScale !== 1) {
+    const pivotX = bubbleX + bubbleW * 0.2;
+    const pivotY = bubbleY + bubbleH;
+    ctx.translate(pivotX, pivotY);
+    ctx.scale(popScale, popScale);
+    ctx.translate(-pivotX, -pivotY);
+  }
+
+  // Bubble shadow
+  ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+  drawSpeechBubble(bubbleX + 3, bubbleY + 3, bubbleW, bubbleH, tailX + 3, tailY + 3);
+  ctx.fill();
+
+  // Bubble fill
+  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+  drawSpeechBubble(bubbleX, bubbleY, bubbleW, bubbleH, tailX, tailY);
+  ctx.fill();
+
+  // Bubble border
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Text
+  ctx.font = "bold 12px Trebuchet MS";
+  ctx.fillStyle = "#1a1a2e";
+  ctx.textAlign = "left";
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], bubbleX + padding, bubbleY + padding + 12 + i * lineH);
+  }
+
+  ctx.restore();
+  ctx.restore();
+}
+
+function updateTouchLayout() {
+  touchButtons.length = 0;
+  const w = state.width;
+  const h = state.height;
+
+  // Weapon bar occupies: y = h-94 to h-46, status bar: h-42 to h-8
+  // Commentator avatar at (38, h-110) r=32 → left x 6..70, y h-142..h-78
+  // Place controls ABOVE weapon bar zone (h - 100) and away from commentator
+
+  const btnSize = 52;
+  const gap = 8;
+  const margin = 14;
+  const fireR = 36;
+  const wpnW = 38;
+  const wpnH = 34;
+
+  // Bottom edge for controls = above weapon bar background (h - 100)
+  const controlsBottom = h - 104;
+
+  // Move buttons (left side, vertically centered, shifted right to avoid commentator)
+  // Commentator occupies x 0..76 roughly, so start at x=80
+  const moveBaseX = 80;
+  const moveY = controlsBottom - btnSize;
+  touchButtons.push({
+    id: "left", x: moveBaseX, y: moveY, w: btnSize, h: btnSize,
+    shape: "rect", label: "\u25C4", key: "ArrowLeft",
+  });
+  touchButtons.push({
+    id: "right", x: moveBaseX + btnSize + gap, y: moveY, w: btnSize, h: btnSize,
+    shape: "rect", label: "\u25BA", key: "ArrowRight",
+  });
+
+  // Fire + Aim (right side, above weapon bar)
+  // Fire circle sits just above controlsBottom
+  const fireCx = w - margin - fireR;
+  const fireCy = controlsBottom - fireR;
+  touchButtons.push({
+    id: "fire", x: fireCx - fireR, y: fireCy - fireR, w: fireR * 2, h: fireR * 2,
+    shape: "circle", label: "\uD83D\uDD25", key: "Space", r: fireR,
+    cx: fireCx, cy: fireCy,
+  });
+  // Aim buttons stacked to the LEFT of fire
+  const aimX = fireCx - fireR - gap - btnSize;
+  touchButtons.push({
+    id: "aimup", x: aimX, y: fireCy - btnSize - gap / 2,
+    w: btnSize, h: btnSize, shape: "rect", label: "\u25B2", key: "ArrowUp",
+  });
+  touchButtons.push({
+    id: "aimdown", x: aimX, y: fireCy + gap / 2,
+    w: btnSize, h: btnSize, shape: "rect", label: "\u25BC", key: "ArrowDown",
+  });
+
+  // Weapon prev/next (flanking the weapon bar)
+  const slotW = 70;
+  const slotGap = 6;
+  const totalW = weapons.length * slotW + (weapons.length - 1) * slotGap;
+  const barStartX = (w - totalW) / 2;
+  const barY = h - 44 - 50;
+  touchButtons.push({
+    id: "wpnprev", x: barStartX - wpnW - gap, y: barY + (44 - wpnH) / 2,
+    w: wpnW, h: wpnH, shape: "rect", label: "\u25C0", key: "wpnprev",
+  });
+  touchButtons.push({
+    id: "wpnnext", x: barStartX + totalW + gap, y: barY + (44 - wpnH) / 2,
+    w: wpnW, h: wpnH, shape: "rect", label: "\u25B6", key: "wpnnext",
+  });
+}
+
+function getTouchedButton(tx, ty) {
+  for (const btn of touchButtons) {
+    if (btn.shape === "circle") {
+      const dx = tx - btn.cx;
+      const dy = ty - btn.cy;
+      if (dx * dx + dy * dy <= btn.r * btn.r) return btn;
+    } else {
+      if (tx >= btn.x && tx <= btn.x + btn.w && ty >= btn.y && ty <= btn.y + btn.h) return btn;
+    }
+  }
+  return null;
+}
+
+function touchActionDown(btn) {
+  if (!btn) return;
+  if (btn.key === "wpnprev") {
+    setWeapon(state.weaponIndex - 1);
+    return;
+  }
+  if (btn.key === "wpnnext") {
+    setWeapon(state.weaponIndex + 1);
+    return;
+  }
+  if (btn.key === "Space") {
+    if (!state.charging && state.projectiles.length === 0 && !state.gameOver) {
+      state.charging = true;
+      state.charge = 0;
+      state.chargeDir = 1;
+      updateHud();
+    }
+    return;
+  }
+  const keyMap = { ArrowLeft: "ArrowLeft", ArrowRight: "ArrowRight", ArrowUp: "ArrowUp", ArrowDown: "ArrowDown" };
+  if (keyMap[btn.key]) keys.add(btn.key);
+}
+
+function touchActionUp(btn) {
+  if (!btn) return;
+  if (btn.key === "wpnprev" || btn.key === "wpnnext") return;
+  if (btn.key === "Space") {
+    if (state.charging && state.projectiles.length === 0 && !state.gameOver) {
+      const worm = state.worms[state.currentIndex];
+      const weapon = getCurrentWeapon();
+      fireProjectile(worm, state.charge, weapon);
+    }
+    state.charging = false;
+    state.chargeDir = 1;
+    state.charge = 0;
+    updateHud();
+    return;
+  }
+  keys.delete(btn.key);
+}
+
+function initTouchControls() {
+  updateTouchLayout();
+
+  canvas.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = state.width / rect.width;
+    const scaleY = state.height / rect.height;
+    for (const touch of e.changedTouches) {
+      const tx = (touch.clientX - rect.left) * scaleX;
+      const ty = (touch.clientY - rect.top) * scaleY;
+      const btn = getTouchedButton(tx, ty);
+      if (btn) {
+        activeTouches.set(touch.identifier, btn.id);
+        touchActionDown(btn);
+      } else {
+        // Check weapon bar slots
+        for (const slot of hudWeaponSlots) {
+          if (tx >= slot.x && tx <= slot.x + slot.w && ty >= slot.y && ty <= slot.y + slot.h) {
+            setWeapon(slot.index);
+            break;
+          }
+        }
+      }
+      // Handle game over restart tap
+      if (state.gameOver) {
+        if (!net.enabled) resetGame();
+      }
+    }
+  }, { passive: false });
+
+  canvas.addEventListener("touchmove", (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = state.width / rect.width;
+    const scaleY = state.height / rect.height;
+    for (const touch of e.changedTouches) {
+      const tx = (touch.clientX - rect.left) * scaleX;
+      const ty = (touch.clientY - rect.top) * scaleY;
+      const prevId = activeTouches.get(touch.identifier);
+      const btn = getTouchedButton(tx, ty);
+      const newId = btn ? btn.id : null;
+      if (prevId !== newId) {
+        // Finger moved off previous button
+        if (prevId) {
+          const prevBtn = touchButtons.find((b) => b.id === prevId);
+          touchActionUp(prevBtn);
+        }
+        // Finger moved onto new button
+        if (btn) {
+          activeTouches.set(touch.identifier, btn.id);
+          touchActionDown(btn);
+        } else {
+          activeTouches.delete(touch.identifier);
+        }
+      }
+    }
+  }, { passive: false });
+
+  const handleTouchEnd = (e) => {
+    e.preventDefault();
+    for (const touch of e.changedTouches) {
+      const btnId = activeTouches.get(touch.identifier);
+      if (btnId) {
+        const btn = touchButtons.find((b) => b.id === btnId);
+        touchActionUp(btn);
+        activeTouches.delete(touch.identifier);
+      }
+    }
+  };
+
+  canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
+  canvas.addEventListener("touchcancel", handleTouchEnd, { passive: false });
+}
+
+function drawTouchControls() {
+  ctx.save();
+  for (const btn of touchButtons) {
+    const isPressed = [...activeTouches.values()].includes(btn.id);
+
+    if (btn.shape === "circle") {
+      ctx.beginPath();
+      ctx.arc(btn.cx, btn.cy, btn.r, 0, Math.PI * 2);
+      ctx.fillStyle = isPressed ? "rgba(255,100,50,0.45)" : "rgba(0,0,0,0.35)";
+      ctx.fill();
+      ctx.strokeStyle = isPressed ? "rgba(255,180,100,0.7)" : "rgba(255,255,255,0.3)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.font = `${Math.round(btn.r * 0.8)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#fff";
+      ctx.fillText(btn.label, btn.cx, btn.cy);
+    } else {
+      const r = 8;
+      ctx.fillStyle = isPressed ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.35)";
+      drawRoundedRect(btn.x, btn.y, btn.w, btn.h, r);
+      ctx.fill();
+      ctx.strokeStyle = isPressed ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.2)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      const fontSize = btn.id.startsWith("wpn") ? Math.round(btn.h * 0.45) : Math.round(btn.h * 0.5);
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = isPressed ? "#fff" : "rgba(255,255,255,0.85)";
+      ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
+    }
+  }
+  ctx.restore();
+}
+
+function drawHud() {
+  drawTeamBanners();
+  drawTurnTimer();
+  drawWindIndicator();
+  drawWeaponBar();
+  drawStatusBar();
+  drawCommentary();
+  if (isMobile) drawTouchControls();
+}
+
 function render() {
   if (!ctx) return;
   if (!state.width || !state.height) return;
@@ -1689,11 +3100,15 @@ function render() {
   const scaleY = canvas.height / state.height;
   ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
   drawBackground();
+  drawClouds();
+  drawWindGusts();
   drawTerrain();
   drawTrajectory();
   state.worms.forEach((worm, index) => drawWorm(worm, index === state.currentIndex));
   drawProjectiles();
   drawExplosions();
+  drawHealthPacks();
+  drawHud();
 
   if (state.gameOver) {
     ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
@@ -1703,7 +3118,7 @@ function render() {
     ctx.textAlign = "center";
     ctx.fillText(`Ganador: ${state.winner}`, state.width / 2, state.height / 2);
     ctx.font = "16px Trebuchet MS";
-    ctx.fillText("Pulsa R para reiniciar", state.width / 2, state.height / 2 + 30);
+    ctx.fillText(isMobile ? "Toca para reiniciar" : "Pulsa R para reiniciar", state.width / 2, state.height / 2 + 30);
   }
 }
 
@@ -1722,8 +3137,13 @@ function updateCharge(dt) {
 }
 
 function step(dt) {
+  const cdt = Math.min(0.033, dt);
+  if (commentaryState.timer > 0) commentaryState.timer -= cdt;
+  if (commentaryState.popTimer > 0) commentaryState.popTimer -= cdt;
+  updateClouds(cdt);
+  updateWindGusts(cdt);
   if (net.enabled) {
-    updateExplosions(Math.min(0.033, dt));
+    updateExplosions(cdt);
     return;
   }
   const safeDt = Math.min(0.033, dt);
@@ -1736,6 +3156,29 @@ function step(dt) {
     updateProjectiles(safeDt);
     updateExplosions(safeDt);
     updateCharge(safeDt);
+    updateHealthPacks(safeDt);
+    state.packSpawnTimer -= safeDt;
+    if (state.packSpawnTimer <= 0) {
+      state.packSpawnTimer = 25 + Math.random() * 15;
+      if (state.healthPacks.length < 3) {
+        spawnHealthPack();
+      }
+    }
+    if (state.projectiles.length === 0 && !state.gameOver) {
+      state.turnTimer -= safeDt;
+      if (state.turnTimer <= 0) {
+        state.turnTimer = 0;
+        const worm = state.worms[state.currentIndex];
+        if (worm && worm.alive) {
+          const weapon = getCurrentWeapon();
+          const power = state.charging ? state.charge : 0.5;
+          state.charging = false;
+          state.charge = 0;
+          state.chargeDir = 1;
+          fireProjectile(worm, power, weapon);
+        }
+      }
+    }
   }
 }
 
@@ -1796,7 +3239,31 @@ function handleKeyUp(event, sourceTeam = null) {
   return true;
 }
 
+function handleCanvasClick(event) {
+  if (!canvas || !state.width || !state.height) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = state.width / rect.width;
+  const scaleY = state.height / rect.height;
+  const mx = (event.clientX - rect.left) * scaleX;
+  const my = (event.clientY - rect.top) * scaleY;
+
+  for (const slot of hudWeaponSlots) {
+    if (mx >= slot.x && mx <= slot.x + slot.w && my >= slot.y && my <= slot.y + slot.h) {
+      if (net.enabled) {
+        if (!canApplyInput()) return;
+        const code = `Digit${slot.index + 1}`;
+        sendNet({ type: "input", action: "keydown", code, key: code });
+        return;
+      }
+      setWeapon(slot.index);
+      return;
+    }
+  }
+}
+
 function bindInput(phaserScene) {
+  canvas.addEventListener("click", handleCanvasClick);
+
   phaserScene.input.keyboard.on("keydown", (event) => {
     if (event.code === "KeyR") {
       if (net.enabled) {
@@ -1831,4 +3298,6 @@ function bindInput(phaserScene) {
 
     handleKeyUp(event);
   });
+
+  if (isMobile) initTouchControls();
 }
