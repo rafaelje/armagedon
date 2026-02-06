@@ -44,6 +44,8 @@ const state = {
   seed: 0,
   turnTimer: 30,
   turnTimerMax: 30,
+  healthPacks: [],
+  packSpawnTimer: 0,
 };
 
 const visuals = {
@@ -175,6 +177,12 @@ const commentary = {
     "¡Se fue a ver lombrices al cielo!",
     "¡KO con estilo!",
     "¡Bye bye, gusano valiente!",
+  ],
+  heal: [
+    "¡Botiquín al rescate!",
+    "¡Vitaminas gratis!",
+    "¡Salud que cae del cielo!",
+    "¡Curitas para todos!",
   ],
 };
 
@@ -560,6 +568,8 @@ function resetGame(seedOverride) {
   state.aiTimer = 0;
   state.aiPlan = null;
   state.turnTimer = state.turnTimerMax;
+  state.healthPacks = [];
+  state.packSpawnTimer = 20 + Math.random() * 10;
   buildTerrain();
   createWorms();
   updateHud();
@@ -612,6 +622,171 @@ function sayComment(type, extra = {}) {
   commentaryState.text = text;
   commentaryState.timer = commentaryState.duration;
   commentaryState.popTimer = 0.35;
+}
+
+function spawnHealthPack() {
+  const pack = {
+    x: state.width * (0.1 + Math.random() * 0.8),
+    y: -40,
+    fallSpeed: 40 + Math.random() * 20,
+    healAmount: Math.floor(5 + Math.random() * 16),
+    swayPhase: Math.random() * Math.PI * 2,
+    age: 0,
+    grounded: false,
+    groundTimer: 0,
+    alive: true,
+  };
+  state.healthPacks.push(pack);
+}
+
+function updateHealthPacks(dt) {
+  for (const pack of state.healthPacks) {
+    if (!pack.alive) continue;
+    pack.age += dt;
+
+    if (!pack.grounded) {
+      pack.y += pack.fallSpeed * dt;
+      pack.x += Math.sin(pack.age * 2.5 + pack.swayPhase) * 15 * dt;
+      pack.x = clamp(pack.x, 5, state.width - 5);
+      const groundY = terrainHeightAt(pack.x);
+      if (pack.y >= groundY - 12) {
+        pack.y = groundY - 12;
+        pack.grounded = true;
+        pack.groundTimer = 0;
+      }
+    } else {
+      const groundY = terrainHeightAt(pack.x);
+      if (pack.y < groundY - 14) {
+        pack.grounded = false;
+        pack.fallSpeed = 120;
+      } else {
+        pack.y = groundY - 12;
+        pack.groundTimer += dt;
+        if (pack.groundTimer > 12) {
+          pack.alive = false;
+          continue;
+        }
+      }
+    }
+
+    for (const worm of state.worms) {
+      if (!worm.alive) continue;
+      const dx = worm.x - pack.x;
+      const dy = worm.y - pack.y;
+      if (Math.sqrt(dx * dx + dy * dy) < 25) {
+        worm.health = Math.min(100, worm.health + pack.healAmount);
+        pack.alive = false;
+        sayComment("heal");
+        break;
+      }
+    }
+  }
+  state.healthPacks = state.healthPacks.filter((p) => p.alive);
+}
+
+function drawHealthPack(pack) {
+  const boxW = 14;
+  const boxH = 12;
+  const domeW = 28;
+  const domeH = 16;
+  const ropeLen = 20;
+
+  ctx.save();
+  ctx.translate(pack.x, pack.y);
+
+  if (!pack.grounded) {
+    const sway = Math.sin(pack.age * 2.5 + pack.swayPhase) * 0.12;
+    ctx.rotate(sway);
+
+    const domeBaseY = -boxH / 2 - ropeLen;
+    const domeTopY = domeBaseY - domeH;
+
+    // Dome canopy — puffy shape with segments
+    const segCount = 8;
+    for (let i = 0; i < segCount; i++) {
+      const t0 = i / segCount;
+      const t1 = (i + 1) / segCount;
+      const x0 = -domeW / 2 + t0 * domeW;
+      const x1 = -domeW / 2 + t1 * domeW;
+      const midX = (x0 + x1) / 2;
+      // Parabolic top edge: higher in the center, lower at edges
+      const normMid = (midX / (domeW / 2));
+      const bulge = (1 - normMid * normMid) * domeH;
+      const topY = domeBaseY - bulge;
+      // Extra puffiness per segment
+      const segBulge = bulge * 0.25;
+
+      ctx.beginPath();
+      ctx.moveTo(x0, domeBaseY);
+      ctx.quadraticCurveTo(midX, topY - segBulge, x1, domeBaseY);
+      ctx.closePath();
+      ctx.fillStyle = i % 2 === 0 ? "#e74c3c" : "#fff";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.15)";
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+
+    // Dome outline
+    ctx.beginPath();
+    ctx.moveTo(-domeW / 2, domeBaseY);
+    for (let i = 0; i <= 20; i++) {
+      const t = i / 20;
+      const px = -domeW / 2 + t * domeW;
+      const norm = (px / (domeW / 2));
+      const py = domeBaseY - (1 - norm * norm) * domeH;
+      ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = "#999";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Ropes — 4 lines from dome edge to box corners
+    ctx.strokeStyle = "#555";
+    ctx.lineWidth = 0.8;
+    const ropeAnchors = [-1, -0.35, 0.35, 1];
+    const boxAnchors = [-boxW / 2, -boxW / 4, boxW / 4, boxW / 2];
+    for (let i = 0; i < 4; i++) {
+      const ax = ropeAnchors[i] * (domeW / 2);
+      ctx.beginPath();
+      ctx.moveTo(ax, domeBaseY);
+      ctx.lineTo(boxAnchors[i], -boxH / 2);
+      ctx.stroke();
+    }
+  }
+
+  // Blink when close to timeout
+  const blink = pack.grounded && pack.groundTimer > 9;
+  if (blink && Math.floor(pack.groundTimer * 4) % 2 === 0) {
+    ctx.restore();
+    return;
+  }
+
+  // Box
+  ctx.fillStyle = "#f0f0f0";
+  ctx.strokeStyle = "#888";
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(-boxW / 2, -boxH / 2, boxW, boxH);
+  ctx.strokeRect(-boxW / 2, -boxH / 2, boxW, boxH);
+
+  // Red cross
+  ctx.fillStyle = "#e74c3c";
+  ctx.fillRect(-1.5, -boxH / 2 + 2, 3, boxH - 4);
+  ctx.fillRect(-boxW / 2 + 2, -1.5, boxW - 4, 3);
+
+  // Heal text
+  ctx.fillStyle = "#06d6a0";
+  ctx.font = "bold 10px Trebuchet MS";
+  ctx.textAlign = "center";
+  ctx.fillText(`+${pack.healAmount}`, 0, -boxH / 2 - 4);
+
+  ctx.restore();
+}
+
+function drawHealthPacks() {
+  for (const pack of state.healthPacks) {
+    drawHealthPack(pack);
+  }
 }
 
 function getActiveTeam() {
@@ -935,6 +1110,7 @@ function simulateShot(startX, startY, angle, power, weapon, targets) {
   let vy = -Math.sin(rad) * speed;
   let minDist = Infinity;
   const gravity = config.gravity * weapon.gravityScale;
+  const blastR = weapon.explosionRadius || 40;
 
   for (let t = 0; t < aiConfig.simMaxTime; t += aiConfig.simStep) {
     vx += state.wind * WIND_SCALE * aiConfig.simStep;
@@ -949,12 +1125,19 @@ function simulateShot(startX, startY, angle, power, weapon, targets) {
       const dy = target.y - y;
       const dist = Math.hypot(dx, dy);
       if (dist < minDist) minDist = dist;
-      if (dist <= config.wormRadius + 6) {
-        return dist;
-      }
     }
 
-    if (y >= terrainHeightAt(x)) break;
+    const hitTerrain = y >= terrainHeightAt(x);
+    const hitDirect = minDist <= config.wormRadius + 6;
+    if (hitTerrain || hitDirect) break;
+  }
+
+  // Score considers explosion radius: if minDist is within blast range, reward it
+  if (minDist <= blastR) {
+    const falloff = 1 - minDist / blastR;
+    const estimatedDmg = falloff * (weapon.maxDamage || 50);
+    // Lower score = better; negate damage so higher damage = lower score
+    return -estimatedDmg;
   }
 
   return minDist;
@@ -2389,6 +2572,7 @@ function render() {
   state.worms.forEach((worm, index) => drawWorm(worm, index === state.currentIndex));
   drawProjectiles();
   drawExplosions();
+  drawHealthPacks();
   drawHud();
 
   if (state.gameOver) {
@@ -2435,6 +2619,14 @@ function step(dt) {
     updateProjectiles(safeDt);
     updateExplosions(safeDt);
     updateCharge(safeDt);
+    updateHealthPacks(safeDt);
+    state.packSpawnTimer -= safeDt;
+    if (state.packSpawnTimer <= 0) {
+      state.packSpawnTimer = 25 + Math.random() * 15;
+      if (state.healthPacks.length < 3) {
+        spawnHealthPack();
+      }
+    }
     if (state.projectiles.length === 0 && !state.gameOver) {
       state.turnTimer -= safeDt;
       if (state.turnTimer <= 0) {
