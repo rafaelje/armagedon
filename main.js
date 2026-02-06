@@ -64,6 +64,7 @@ const config = {
   angleSpeed: 90,
   wormRadius: 12,
   chargeRate: 0.9,
+  minWormDistance: 30,
 };
 
 const weapons = [
@@ -140,6 +141,10 @@ const aiConfig = {
   powerMax: 1,
   simStep: 0.02,
   simMaxTime: 3.8,
+  moveChance: 0.7,
+  moveDistMin: 30,
+  moveDistMax: 120,
+  moveTimeMax: 2.5,
 };
 
 const commentary = {
@@ -369,25 +374,121 @@ function terrainHeightAt(x) {
 }
 
 function buildTerrain() {
-  const width = state.width;
-  const height = state.height;
-  const base = height * 0.68;
-  const amp1 = height * 0.12;
-  const amp2 = height * 0.06;
+  const w = state.width;
+  const h = state.height;
   const rng = createRng(state.seed || 1);
-  const phase1 = seededRand(rng, 0, Math.PI * 2);
-  const phase2 = seededRand(rng, 0, Math.PI * 2);
+  state.terrain = new Array(Math.floor(w) + 1);
 
-  state.terrain = new Array(Math.floor(width) + 1);
-  for (let x = 0; x <= width; x += 1) {
-    const y = base + Math.sin(x * 0.01 + phase1) * amp1 + Math.sin(x * 0.004 + phase2) * amp2;
-    state.terrain[x] = clamp(y, height * 0.45, height * 0.92);
+  // --- Random base height ---
+  const base = seededRand(rng, h * 0.58, h * 0.75);
+
+  // --- Random sine waves (2-5) for terrain shape ---
+  const numWaves = Math.floor(seededRand(rng, 2, 6));
+  const waves = [];
+  for (let i = 0; i < numWaves; i++) {
+    waves.push({
+      freq: seededRand(rng, 0.004, 0.045),
+      amp: seededRand(rng, h * 0.015, h * 0.12),
+      phase: seededRand(rng, 0, Math.PI * 2),
+    });
   }
 
-  const platformY = height * 0.55;
-  flattenRange(width * 0.18, width * 0.32, platformY);
-  flattenRange(width * 0.6, width * 0.78, height * 0.52);
-  flattenRange(width * 0.42, width * 0.5, height * 0.62);
+  // --- Overall shape modifier (0=flat, 1=valley, 2=hill, 3=slopeR, 4=slopeL) ---
+  const shapeType = Math.floor(rng() * 5);
+  const shapeAmp = seededRand(rng, h * 0.06, h * 0.22);
+
+  for (let x = 0; x <= w; x++) {
+    let y = base;
+    const nx = x / w;
+
+    if (shapeType === 1) {
+      y += (1 - 4 * (nx - 0.5) * (nx - 0.5)) * shapeAmp;
+    } else if (shapeType === 2) {
+      y -= (1 - 4 * (nx - 0.5) * (nx - 0.5)) * shapeAmp;
+    } else if (shapeType === 3) {
+      y += (nx - 0.5) * shapeAmp;
+    } else if (shapeType === 4) {
+      y -= (nx - 0.5) * shapeAmp;
+    }
+
+    for (const wave of waves) {
+      y += Math.sin(x * wave.freq + wave.phase) * wave.amp;
+    }
+    state.terrain[x] = y;
+  }
+
+  // --- Random gaussian bumps / dips ---
+  const numBumps = Math.floor(seededRand(rng, 0, 5));
+  for (let i = 0; i < numBumps; i++) {
+    const cx = seededRand(rng, w * 0.05, w * 0.95);
+    const bw = seededRand(rng, 30, 130);
+    const bh = seededRand(rng, -h * 0.14, h * 0.14);
+    for (let x = 0; x <= w; x++) {
+      const dx = (x - cx) / bw;
+      if (Math.abs(dx) < 3) {
+        state.terrain[x] += Math.exp(-dx * dx) * bh;
+      }
+    }
+  }
+
+  // --- Clamp all ---
+  for (let x = 0; x <= w; x++) {
+    state.terrain[x] = clamp(state.terrain[x], h * 0.4, h * 0.92);
+  }
+
+  // --- Smooth pass to avoid jagged edges ---
+  smoothTerrain(3);
+
+  // --- Random extra platforms in center zone (0-2) ---
+  const numPlatforms = Math.floor(seededRand(rng, 0, 3));
+  for (let i = 0; i < numPlatforms; i++) {
+    const px = seededRand(rng, w * 0.35, w * 0.65);
+    const pw = seededRand(rng, w * 0.04, w * 0.1);
+    const ph = seededRand(rng, h * 0.45, h * 0.72);
+    flattenRange(px - pw / 2, px + pw / 2, ph);
+  }
+
+  // --- Always flatten spawn areas ---
+  const leftAvg = avgTerrainHeight(Math.floor(w * 0.18), Math.floor(w * 0.32));
+  const rightAvg = avgTerrainHeight(Math.floor(w * 0.68), Math.floor(w * 0.84));
+  flattenRange(w * 0.18, w * 0.32, clamp(leftAvg, h * 0.43, h * 0.78));
+  flattenRange(w * 0.68, w * 0.84, clamp(rightAvg, h * 0.43, h * 0.78));
+
+  // --- Generate random map name ---
+  state.mapName = generateMapName(rng);
+}
+
+function smoothTerrain(passes) {
+  for (let p = 0; p < passes; p++) {
+    const copy = [...state.terrain];
+    for (let x = 1; x < state.terrain.length - 1; x++) {
+      state.terrain[x] = (copy[x - 1] + copy[x] + copy[x + 1]) / 3;
+    }
+  }
+}
+
+function generateMapName(rng) {
+  const adj = [
+    "Salvaje", "Árido", "Olvidado", "Caótico", "Maldito",
+    "Perdido", "Bravo", "Oscuro", "Lejano", "Helado",
+    "Profundo", "Roto", "Seco", "Turbio", "Feroz",
+  ];
+  const noun = [
+    "Cañón", "Valle", "Desierto", "Páramo", "Abismo",
+    "Terreno", "Campo", "Cerro", "Peñasco", "Risco",
+    "Barranco", "Cráter", "Paso", "Llano", "Acantilado",
+  ];
+  return `${noun[Math.floor(rng() * noun.length)]} ${adj[Math.floor(rng() * adj.length)]}`;
+}
+
+function avgTerrainHeight(x0, x1) {
+  let sum = 0;
+  let count = 0;
+  for (let x = x0; x <= x1; x++) {
+    sum += state.terrain[x];
+    count++;
+  }
+  return count > 0 ? sum / count : state.height * 0.6;
 }
 
 function flattenRange(x0, x1, y) {
@@ -463,9 +564,10 @@ function resetGame(seedOverride) {
   buildTerrain();
   createWorms();
   updateHud();
+  state.wind = Math.floor(rand(-5, 5));
   const worm = state.worms[state.currentIndex];
   if (worm) {
-    sayComment("turn", { name: worm.name });
+    sayComment("turn", { name: `${worm.name} — Mapa: ${state.mapName}` });
   }
 }
 
@@ -754,19 +856,117 @@ function connectNet() {
   });
 }
 
+function evaluateShotFromPosition(px, py, targets) {
+  const weapon = weapons[0];
+  const target = targets.reduce((closest, current) => {
+    return Math.abs(current.x - px) < Math.abs(closest.x - px) ? current : closest;
+  }, targets[0]);
+
+  const towardRight = target.x >= px;
+  const angleStart = towardRight ? 15 : 100;
+  const angleEnd = towardRight ? 80 : 165;
+  let best = Infinity;
+
+  for (let angle = angleStart; angle <= angleEnd; angle += aiConfig.angleStep * 2) {
+    for (let power = aiConfig.powerMin; power <= aiConfig.powerMax; power += aiConfig.powerStep * 2) {
+      const score = simulateShot(px, py, angle, power, weapon, targets);
+      if (score < best) best = score;
+    }
+  }
+  return best;
+}
+
+function planAIMove(worm) {
+  const targets = state.worms.filter((w) => w.alive && w.team !== worm.team);
+  if (targets.length === 0) return worm.x;
+
+  const bounds = getMoveBounds(worm.team);
+  const usableMin = bounds.min + 20;
+  const usableMax = bounds.max - 20;
+  const candidates = [worm.x];
+
+  const numSamples = 5;
+  const step = (usableMax - usableMin) / numSamples;
+  for (let i = 0; i <= numSamples; i++) {
+    candidates.push(usableMin + step * i);
+  }
+  for (const offset of [-40, -80, 40, 80]) {
+    candidates.push(clamp(worm.x + offset, usableMin, usableMax));
+  }
+
+  let bestX = worm.x;
+  let bestScore = Infinity;
+
+  for (const cx of candidates) {
+    if (wouldCollideWithWorm(worm, cx)) continue;
+    const cy = terrainHeightAt(cx) - config.wormRadius;
+    const shotScore = evaluateShotFromPosition(cx, cy, targets);
+    const heightBonus = (cy / state.height) * 5;
+    const total = shotScore + heightBonus;
+    if (total < bestScore) {
+      bestScore = total;
+      bestX = cx;
+    }
+  }
+
+  return bestX;
+}
+
 function updateAI(dt) {
   if (!aiConfig.enabled || state.gameOver || state.projectiles.length > 0 || state.charging) return;
   const worm = state.worms[state.currentIndex];
   if (!worm || !worm.alive || worm.team !== aiConfig.team) return;
 
   if (!state.aiPlan) {
-    state.aiPlan = planShot(worm);
-    state.aiTimer = rand(aiConfig.thinkDelayMin, aiConfig.thinkDelayMax);
+    const targetX = planAIMove(worm);
+    const shouldMove = Math.abs(targetX - worm.x) > 10;
+    state.aiPlan = {
+      phase: shouldMove ? "moving" : "thinking",
+      targetX,
+      moveTime: 0,
+      angle: 0,
+      power: 0,
+      weaponIndex: 0,
+    };
+    state.aiTimer = rand(0.2, 0.5);
     updateHud();
+    return;
   }
 
   state.aiTimer -= dt;
-  if (state.aiTimer <= 0 && state.aiPlan) {
+  if (state.aiTimer > 0) return;
+
+  if (state.aiPlan.phase === "moving") {
+    const diff = state.aiPlan.targetX - worm.x;
+    state.aiPlan.moveTime += dt;
+    if (Math.abs(diff) > 5 && state.aiPlan.moveTime < aiConfig.moveTimeMax) {
+      const dir = diff > 0 ? 1 : -1;
+      const aiBounds = getMoveBounds(worm.team);
+      const newX = clamp(worm.x + dir * config.moveSpeed * dt, aiBounds.min, aiBounds.max);
+      if (!wouldCollideWithWorm(worm, newX)) {
+        worm.x = newX;
+      } else {
+        state.aiPlan.phase = "thinking";
+        state.aiTimer = rand(aiConfig.thinkDelayMin, aiConfig.thinkDelayMax);
+      }
+    } else {
+      state.aiPlan.phase = "thinking";
+      state.aiTimer = rand(aiConfig.thinkDelayMin, aiConfig.thinkDelayMax);
+    }
+    return;
+  }
+
+  if (state.aiPlan.phase === "thinking") {
+    const shot = planShot(worm);
+    state.aiPlan.angle = shot.angle;
+    state.aiPlan.power = shot.power;
+    state.aiPlan.weaponIndex = shot.weaponIndex;
+    state.aiPlan.phase = "firing";
+    state.aiTimer = rand(0.3, 0.6);
+    return;
+  }
+
+  if (state.aiPlan.phase === "firing") {
     setWeapon(state.aiPlan.weaponIndex);
     worm.angle = state.aiPlan.angle;
     const weapon = getCurrentWeapon();
@@ -869,6 +1069,21 @@ function nextTurn() {
   sayComment("turn", { name: worm.name });
 }
 
+function getMoveBounds(team) {
+  const half = state.width * 0.5;
+  if (team === "Rojo") return { min: config.wormRadius, max: half };
+  if (team === "Azul") return { min: half, max: state.width - config.wormRadius };
+  return { min: config.wormRadius, max: state.width - config.wormRadius };
+}
+
+function wouldCollideWithWorm(worm, newX) {
+  for (const other of state.worms) {
+    if (other === worm || !other.alive) continue;
+    if (Math.abs(newX - other.x) < config.minWormDistance) return true;
+  }
+  return false;
+}
+
 function updateWorm(worm, dt, isActive) {
   if (!worm.alive) return;
 
@@ -880,8 +1095,11 @@ function updateWorm(worm, dt, isActive) {
 
     if (left !== right) {
       const dir = left ? -1 : 1;
-      worm.x += dir * config.moveSpeed * dt;
-      worm.x = clamp(worm.x, config.wormRadius, state.width - config.wormRadius);
+      const bounds = getMoveBounds(worm.team);
+      const newX = clamp(worm.x + dir * config.moveSpeed * dt, bounds.min, bounds.max);
+      if (!wouldCollideWithWorm(worm, newX)) {
+        worm.x = newX;
+      }
     }
 
     if (up !== down) {
@@ -1214,60 +1432,171 @@ function drawTrajectory() {
 
 function drawWorm(worm, isCurrent) {
   if (!worm.alive) return;
-  const shadowY = worm.y + config.wormRadius + 4;
-  ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+  const r = config.wormRadius;
+  const rad = (worm.angle * Math.PI) / 180;
+  const facingRight = Math.cos(rad) >= 0;
+  const fd = facingRight ? 1 : -1;
+
+  // Shadow
+  ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
   ctx.beginPath();
-  ctx.ellipse(worm.x, shadowY, config.wormRadius * 0.9, 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(worm.x, worm.y + r + 3, r * 0.85, 3.5, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  const bodyGrad = ctx.createRadialGradient(
-    worm.x - 4,
-    worm.y - 6,
-    2,
-    worm.x,
-    worm.y,
-    config.wormRadius + 2
-  );
-  bodyGrad.addColorStop(0, "rgba(255, 255, 255, 0.65)");
-  bodyGrad.addColorStop(0.4, worm.color);
-  bodyGrad.addColorStop(1, "rgba(0, 0, 0, 0.35)");
-  ctx.fillStyle = bodyGrad;
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
-  ctx.lineWidth = 2;
+  // Tail (small bump behind the body)
+  ctx.fillStyle = worm.color;
   ctx.beginPath();
-  ctx.arc(worm.x, worm.y, config.wormRadius, 0, Math.PI * 2);
+  ctx.ellipse(worm.x - fd * r * 0.7, worm.y + 4, 5, 4, -fd * 0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body - oval, slightly taller than wide
+  const bodyGrad = ctx.createRadialGradient(
+    worm.x + fd * 2, worm.y - 5, 2,
+    worm.x, worm.y, r + 1
+  );
+  bodyGrad.addColorStop(0, "rgba(255, 255, 255, 0.5)");
+  bodyGrad.addColorStop(0.4, worm.color);
+  bodyGrad.addColorStop(1, "rgba(0, 0, 0, 0.3)");
+  ctx.fillStyle = bodyGrad;
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.3)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(worm.x, worm.y, r * 0.9, r * 1.15, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = "#f6f6f6";
+  // Belly highlight
+  ctx.fillStyle = "rgba(255, 255, 255, 0.13)";
   ctx.beginPath();
-  ctx.arc(worm.x + 4, worm.y - 3, 3, 0, Math.PI * 2);
+  ctx.ellipse(worm.x + fd * 1, worm.y + 3, r * 0.5, r * 0.3, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = "#111";
+  // Headband
+  const bandColor = worm.team === "Rojo" ? "#a93226" : "#1a5276";
+  const bandY = worm.y - r * 0.75;
+  ctx.fillStyle = bandColor;
   ctx.beginPath();
-  ctx.arc(worm.x + 5, worm.y - 3, 1.5, 0, Math.PI * 2);
+  ctx.ellipse(worm.x, bandY, r * 0.65, 3.5, 0, Math.PI, 0);
+  ctx.fill();
+  // Knot on the side
+  ctx.beginPath();
+  ctx.ellipse(worm.x - fd * r * 0.55, bandY + 1, 3, 2.5, -fd * 0.5, 0, Math.PI * 2);
   ctx.fill();
 
+  // Eyes
+  const eyeCenterX = worm.x + fd * 3.5;
+  const eyeY = worm.y - 2.5;
+  const eyeGap = 3.2;
+  const eye1x = eyeCenterX - eyeGap * fd;
+  const eye2x = eyeCenterX + eyeGap * fd;
+
+  // Eye whites
+  ctx.fillStyle = "#f0f0f0";
+  ctx.strokeStyle = "rgba(0,0,0,0.2)";
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.ellipse(eye1x, eyeY, 3, 3.8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(eye2x, eyeY, 3, 3.8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Pupils - follow aim direction
+  const pShift = 1.2;
+  const pDx = Math.cos(rad) * pShift;
+  const pDy = -Math.sin(rad) * pShift;
+  ctx.fillStyle = "#1a1a1a";
+  ctx.beginPath();
+  ctx.arc(eye1x + pDx, eyeY + pDy, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(eye2x + pDx, eyeY + pDy, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eye shine
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.beginPath();
+  ctx.arc(eye1x - 0.8, eyeY - 1.5, 0.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(eye2x - 0.8, eyeY - 1.5, 0.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Eyebrows
+  if (isCurrent) {
+    ctx.strokeStyle = "rgba(40, 20, 10, 0.7)";
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(eye1x - 3, eyeY - 5.5);
+    ctx.lineTo(eye1x + 2.5, eyeY - 6.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(eye2x - 2.5, eyeY - 6.5);
+    ctx.lineTo(eye2x + 3, eyeY - 5.5);
+    ctx.stroke();
+  }
+
+  // Mouth
+  ctx.strokeStyle = "rgba(50, 25, 15, 0.5)";
+  ctx.lineWidth = 1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  if (isCurrent) {
+    ctx.arc(worm.x + fd * 3, worm.y + 5.5, 3, 0.15, Math.PI - 0.15);
+  } else {
+    ctx.moveTo(worm.x + fd * 1, worm.y + 5.5);
+    ctx.lineTo(worm.x + fd * 5, worm.y + 5.5);
+  }
+  ctx.stroke();
+
+  // HP label
   const hpText = `${worm.health}`;
-  ctx.font = "11px Trebuchet MS";
+  ctx.font = "bold 10px Trebuchet MS";
   ctx.textAlign = "center";
   const textWidth = ctx.measureText(hpText).width;
-  const labelX = worm.x - textWidth / 2 - 6;
-  const labelY = worm.y - config.wormRadius - 20;
-  ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
-  ctx.fillRect(labelX, labelY, textWidth + 12, 14);
+  const labelX = worm.x - textWidth / 2 - 5;
+  const labelY = worm.y - r * 1.15 - 20;
+  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+  const labelW = textWidth + 10;
+  const labelH = 14;
+  const labelR = 3;
+  ctx.beginPath();
+  ctx.moveTo(labelX + labelR, labelY);
+  ctx.lineTo(labelX + labelW - labelR, labelY);
+  ctx.quadraticCurveTo(labelX + labelW, labelY, labelX + labelW, labelY + labelR);
+  ctx.lineTo(labelX + labelW, labelY + labelH - labelR);
+  ctx.quadraticCurveTo(labelX + labelW, labelY + labelH, labelX + labelW - labelR, labelY + labelH);
+  ctx.lineTo(labelX + labelR, labelY + labelH);
+  ctx.quadraticCurveTo(labelX, labelY + labelH, labelX, labelY + labelH - labelR);
+  ctx.lineTo(labelX, labelY + labelR);
+  ctx.quadraticCurveTo(labelX, labelY, labelX + labelR, labelY);
+  ctx.closePath();
+  ctx.fill();
   ctx.fillStyle = "#f8f8fb";
   ctx.fillText(hpText, worm.x, labelY + 11);
 
+  // Name tag
+  ctx.font = "8px Trebuchet MS";
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.fillText(worm.name, worm.x, labelY - 2);
+
+  // Aim line
   if (isCurrent && !state.gameOver) {
-    const rad = (worm.angle * Math.PI) / 180;
     ctx.strokeStyle = "#ffd166";
     ctx.lineWidth = 2;
+    ctx.lineCap = "round";
     ctx.beginPath();
     ctx.moveTo(worm.x, worm.y);
     ctx.lineTo(worm.x + Math.cos(rad) * 36, worm.y - Math.sin(rad) * 36);
     ctx.stroke();
+    // Aim dot
+    ctx.fillStyle = "#ffd166";
+    ctx.beginPath();
+    ctx.arc(worm.x + Math.cos(rad) * 36, worm.y - Math.sin(rad) * 36, 3, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   drawPowerBar(worm, isCurrent);
