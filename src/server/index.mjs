@@ -11,4 +11,4 @@ setInterval(() => {
 }, 1000 / TICK_RATE);
 
 console.log(`Deno server running on port ${PORT}`);
-Deno.serve({ port: PORT, handler });
+Deno.serve({ port: PORT }, handler);

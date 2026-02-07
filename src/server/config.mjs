@@ -1,4 +1,4 @@
-import { GAME_WIDTH, GAME_HEIGHT, config, weapons } from "../game.js";
+import { GAME_WIDTH, GAME_HEIGHT, config, weapons } from "../game.mjs";
 
 const PORT = (typeof Deno !== "undefined" && Deno.env.get("PORT")) ? Number(Deno.env.get("PORT")) : 8080;
 const TICK_RATE = 30;

@@ -1,4 +1,4 @@
-const {
+import {
   clamp,
   getAimBounds,
   createRng,
@@ -7,7 +7,7 @@ const {
   makeWorm,
   updateWorm,
   config
-} = require("../src/game.js");
+} from "../src/game.mjs";
 
 describe("Game Logic", () => {
   describe("clamp", () => {

@@ -1,4 +1,4 @@
-import { GAME_WIDTH, GAME_HEIGHT } from "../game.js";
+import { GAME_WIDTH, GAME_HEIGHT } from "../game.mjs";
 
 let seed = Math.floor(Math.random() * 1e9);
 let nextId = 1;

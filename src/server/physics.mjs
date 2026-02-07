@@ -1,6 +1,6 @@
 import { state } from "./state.mjs";
 import { config, WIND_SCALE } from "./config.mjs";
-import { terrainHeightAt, clamp } from "../game.js";
+import { terrainHeightAt, clamp } from "../game.mjs";
 import { broadcast } from "./broadcaster.mjs";
 
 function addProjectile(params) {

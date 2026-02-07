@@ -1,6 +1,6 @@
-# Worms Armageddon MP
+# Eggplosion
 
-A multiplayer tactical artillery game inspired by Worms Armageddon, built with Phaser 3, Node.js, and WebSockets.
+A multiplayer tactical artillery game, built with Phaser 3, Node.js, and WebSockets.
 
 ![Gameplay Screenshot](assets/screenshot.png)
 
@@ -43,7 +43,7 @@ A multiplayer tactical artillery game inspired by Worms Armageddon, built with P
 
     ```bash
     git clone <repository-url>
-    cd Worms-Armageddon
+    cd Eggplosion
     ```
 
 2.  Install dependencies:

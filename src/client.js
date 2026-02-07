@@ -22,7 +22,7 @@ const touchButtons = [];
 const activeTouches = new Map();
 
 const net = {
-  enabled: new URLSearchParams(window.location.search).has("mp"),
+  enabled: false,
   ws: null,
   connected: false,
   playerId: null,
@@ -266,7 +266,7 @@ const phaserConfig = {
 };
 
 new Phaser.Game(phaserConfig);
-connectNet();
+// connectNet(); // Moved to UI interaction
 
 function rand(min, max) {
   return Math.random() * (max - min) + min;
@@ -848,6 +848,11 @@ function handleNetMessage(msg) {
   }
   if (msg.type === "state") {
     applyState(msg.state);
+  }
+  if (msg.type === "players") {
+    if (msg.players && msg.players.length >= 2) {
+      document.getElementById("menu-overlay").classList.add("hidden");
+    }
   }
 }
 
@@ -3301,3 +3306,28 @@ function bindInput(phaserScene) {
 
   if (isMobile) initTouchControls();
 }
+
+// UI Logic
+document.getElementById("btn-singleplayer").addEventListener("click", () => {
+  document.getElementById("menu-overlay").classList.add("hidden");
+  net.enabled = false;
+  resetGame();
+});
+
+document.getElementById("btn-multiplayer").addEventListener("click", () => {
+  document.getElementById("mode-selection").classList.add("hidden");
+  document.getElementById("waiting-screen").classList.remove("hidden");
+  net.enabled = true;
+  connectNet();
+});
+
+document.getElementById("btn-cancel").addEventListener("click", () => {
+  if (net.ws) {
+    net.ws.close();
+    net.ws = null;
+  }
+  net.connected = false;
+  net.enabled = false;
+  document.getElementById("waiting-screen").classList.add("hidden");
+  document.getElementById("mode-selection").classList.remove("hidden");
+});

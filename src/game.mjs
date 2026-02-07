@@ -170,7 +170,7 @@ function updateWorm(worm, dt, canMove, pressed, terrain, width, height) {
   }
 }
 
-module.exports = {
+export {
   GAME_WIDTH,
   GAME_HEIGHT,
   config,

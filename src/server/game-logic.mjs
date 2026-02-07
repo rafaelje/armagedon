@@ -2,7 +2,7 @@ import { state, pressed } from "./state.mjs";
 import { config, weapons } from "./config.mjs";
 import { buildTerrain } from "./terrain.mjs";
 import { updateProjectiles, fireProjectile } from "./physics.mjs";
-import { makeWorm, updateWorm } from "../game.js";
+import { makeWorm, updateWorm } from "../game.mjs";
 
 function createWorms() {
   const left = [state.width * 0.2, state.width * 0.3];
