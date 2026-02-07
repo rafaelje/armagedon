@@ -925,9 +925,9 @@ function applyInterpolatedState() {
 
 function connectNet() {
   if (!net.enabled) return;
-  const host = window.location.hostname || "localhost";
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  net.url = `${protocol}://${host}:8080`;
+  const host = window.location.host;
+  net.url = `${protocol}://${host}`;
   aiConfig.enabled = false;
   try {
     net.ws = new WebSocket(net.url);

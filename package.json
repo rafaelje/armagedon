@@ -2,6 +2,7 @@
   "name": "worms-armageddon-mp",
   "version": "0.1.0",
   "private": true,
+  "type": "commonjs",
   "scripts": {
     "server": "node src/server.js",
     "deploy": "firebase deploy --only hosting",
