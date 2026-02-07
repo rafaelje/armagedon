@@ -7,7 +7,7 @@ const {
   makeWorm,
   updateWorm,
   config
-} = require("../src/game");
+} = require("../src/game.cjs");
 
 describe("Game Logic", () => {
   describe("clamp", () => {
