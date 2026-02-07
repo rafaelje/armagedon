@@ -4,10 +4,31 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <meta name="screen-orientation" content="landscape" />
-    <title>Worms JS - Nivel Único</title>
+    <title>Eggplosion - Nivel Único</title>
     <link rel="stylesheet" href="src/style.css" />
   </head>
   <body>
+    <div id="menu-overlay">
+      <div id="mode-selection">
+        <h1>Eggplosion</h1>
+        <div class="mode-container">
+          <div class="mode-card" id="btn-singleplayer">
+            <h2>Un Jugador</h2>
+            <p>Juega contra la IA en modo local.</p>
+          </div>
+          <div class="mode-card" id="btn-multiplayer">
+            <h2>Multijugador</h2>
+            <p>Juega contra un amigo online.</p>
+          </div>
+        </div>
+      </div>
+      <div id="waiting-screen" class="hidden">
+        <h2>Esperando oponente...</h2>
+        <div class="spinner"></div>
+        <p>Tu partida está lista. Esperando a que se una el segundo jugador.</p>
+        <button id="btn-cancel">Cancelar</button>
+      </div>
+    </div>
     <canvas id="game"></canvas>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
     <script src="src/client.js"></script>
