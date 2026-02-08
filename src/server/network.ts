@@ -1,4 +1,5 @@
-import { state, clients, pressed, getNextClientId, GameState } from "./state.ts";
+import { state, clients, pressed, getNextClientId } from "./state.ts";
+import type { GameState } from "./state.ts";
 import { resetGame, getActiveTeam, handleKeyDown, handleKeyUp } from "./game-logic.ts";
 import { broadcast } from "./broadcaster.ts";
 

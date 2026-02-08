@@ -131,8 +131,8 @@ export function terrainHeightAt(x: number, terrain: number[], width: number, hei
   return terrain[xi] ?? height;
 }
 
-export { Worm } from "./types.ts";
-import { Worm } from "./types.ts";
+import type { Worm } from "./types.ts";
+export type { Worm };
 
 export function makeWorm(
   { id, name, team, color, x }: { id: string; name: string; team: string; color: string; x: number },

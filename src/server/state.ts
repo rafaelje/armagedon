@@ -1,6 +1,6 @@
 import { GAME_WIDTH, GAME_HEIGHT } from "../game.ts";
-import { Worm, Projectile, GameState } from "../types.ts";
-export { Worm, Projectile, GameState };
+import type { Worm, Projectile, GameState } from "../types.ts";
+export type { Worm, Projectile, GameState };
 
 let seed = Math.floor(Math.random() * 1e9);
 let nextId = 1;

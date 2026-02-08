@@ -2,7 +2,8 @@ import { state, pressed } from "./state.ts";
 import { config, weapons } from "./config.ts";
 import { buildTerrain } from "./terrain.ts";
 import { updateProjectiles, fireProjectile } from "./physics.ts";
-import { makeWorm, updateWorm, Worm } from "../game.ts";
+import { makeWorm, updateWorm } from "../game.ts";
+import type { Worm } from "../game.ts";
 
 function createWorms() {
   const left = [state.width * 0.2, state.width * 0.3];

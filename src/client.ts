@@ -3,7 +3,7 @@ import {
   clamp, getAimBounds, createRng, seededRand,
   Weapon, config, weapons
 } from "./game.ts";
-import { Worm, Projectile, GameState as NetGameState } from "./types.ts";
+import type { Worm, Projectile, GameState as NetGameState } from "./types.ts";
 
 let canvas: HTMLCanvasElement | null = null;
 let ctx: CanvasRenderingContext2D | null = null;

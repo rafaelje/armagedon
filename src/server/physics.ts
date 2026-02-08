@@ -1,6 +1,7 @@
 import { state } from "./state.ts";
 import { config, WIND_SCALE } from "./config.ts";
-import { terrainHeightAt, clamp, Worm, Weapon } from "../game.ts";
+import { terrainHeightAt, clamp } from "../game.ts";
+import type { Worm, Weapon } from "../game.ts";
 import { broadcast } from "./broadcaster.ts";
 
 function addProjectile(params: any) {
