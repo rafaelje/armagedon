@@ -4,9 +4,9 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "server": "node src/server.js",
+    "server": "deno task start",
     "deploy": "firebase deploy --only hosting",
-    "test": "jest"
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest"
   },
   "dependencies": {
     "ws": "^8.16.0"
