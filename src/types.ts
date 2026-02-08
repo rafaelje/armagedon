@@ -21,6 +21,7 @@ export interface Projectile {
   radius: number;
   weaponId: string;
   explosionRadius: number;
+  terrainRadius?: number;
   maxDamage: number;
   bounciness: number;
   fuse: number;

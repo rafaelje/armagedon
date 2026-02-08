@@ -31,6 +31,7 @@ function fireProjectile(worm: Worm, power: number, weapon: Weapon) {
       radius: weapon.projectileRadius ?? 4,
       weaponId: weapon.id,
       explosionRadius: weapon.explosionRadius,
+      terrainRadius: weapon.terrainRadius,
       maxDamage: weapon.maxDamage,
       bounciness: weapon.bounciness,
       fuse: weapon.fuse,
@@ -55,7 +56,7 @@ function updateProjectiles(dt: number) {
     if (p.timer > 0) {
       p.timer -= dt;
       if (p.timer <= 0) {
-        explode(p.x, p.y, p.explosionRadius, p.maxDamage);
+        explode(p.x, p.y, p.explosionRadius, p.maxDamage, p.terrainRadius);
         return;
       }
     }
@@ -71,7 +72,7 @@ function updateProjectiles(dt: number) {
         p.vx *= 0.8;
         p.bounces += 1;
       } else {
-        explode(p.x, p.y, p.explosionRadius, p.maxDamage);
+        explode(p.x, p.y, p.explosionRadius, p.maxDamage, p.terrainRadius);
         return;
       }
     }
@@ -82,9 +83,10 @@ function updateProjectiles(dt: number) {
   state.projectiles = next;
 }
 
-function explode(x: number, y: number, radius: number, maxDamage: number) {
-  carveCrater(x, y, radius);
-  broadcast({ type: "crater", x, y, radius });
+function explode(x: number, y: number, radius: number, maxDamage: number, terrainRadius?: number) {
+  const tRadius = terrainRadius ?? radius;
+  carveCrater(x, y, tRadius);
+  broadcast({ type: "crater", x, y, radius: tRadius });
 
   state.worms.forEach((worm) => {
     if (!worm.alive) return;

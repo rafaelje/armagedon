@@ -33,6 +33,7 @@ export interface Weapon {
   burst?: number;
   burstSpread?: number;
   burstSpeedJitter?: number;
+  terrainRadius?: number;
 }
 
 export const weapons: Weapon[] = [
@@ -54,9 +55,10 @@ export const weapons: Weapon[] = [
     maxSpeed: 1200,
     explosionRadius: 70,
     maxDamage: 75,
-    bounciness: 0.45,
+    bounciness: 0.2,
     fuse: 6.6,
     gravityScale: 0.9,
+    terrainRadius: 100,
   },
   {
     id: "mortar",
