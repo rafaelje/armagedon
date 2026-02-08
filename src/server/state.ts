@@ -1,4 +1,6 @@
-import { GAME_WIDTH, GAME_HEIGHT, Worm } from "../game.ts";
+import { GAME_WIDTH, GAME_HEIGHT } from "../game.ts";
+import { Worm, Projectile, GameState } from "../types.ts";
+export { Worm, Projectile, GameState };
 
 let seed = Math.floor(Math.random() * 1e9);
 let nextId = 1;
@@ -10,43 +12,6 @@ export interface ClientInfo {
 
 const clients = new Map<any, ClientInfo>();
 const pressed = new Set<string>();
-
-interface Projectile {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  radius: number;
-  weaponId: string;
-  explosionRadius: number;
-  maxDamage: number;
-  bounciness: number;
-  fuse: number;
-  timer: number;
-  gravity: number;
-  bounces: number;
-  alive: boolean;
-}
-
-export interface GameState {
-  width: number;
-  height: number;
-  terrain: number[];
-  worms: Worm[];
-  currentIndex: number;
-  weaponIndex: number;
-  projectiles: Projectile[];
-  charging: boolean;
-  charge: number;
-  chargeDir: number;
-  gameOver: boolean;
-  winner: string | null;
-  wind: number;
-  seed: number;
-  turnTimer: number;
-  turnTimerMax: number;
-  mapName?: string;
-}
 
 const state: GameState = {
   width: GAME_WIDTH,

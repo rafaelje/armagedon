@@ -1,6 +1,6 @@
 import { GAME_WIDTH, GAME_HEIGHT, config, weapons } from "../game.ts";
 
-const PORT = (typeof (globalThis as any).Deno !== "undefined" && (globalThis as any).Deno.env.get("PORT")) ? Number((globalThis as any).Deno.env.get("PORT")) : 8080;
+const PORT = (typeof Deno !== "undefined" && Deno.env.get("PORT")) ? Number(Deno.env.get("PORT")) : 8080;
 const TICK_RATE = 30;
 const WIND_SCALE = 20;
 

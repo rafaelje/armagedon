@@ -1,8 +1,9 @@
 /// <reference types="phaser" />
 import {
   clamp, getAimBounds, createRng, seededRand,
-  Worm, Weapon, config, weapons
+  Weapon, config, weapons
 } from "./game.ts";
+import { Worm, Projectile, GameState as NetGameState } from "./types.ts";
 
 let canvas: HTMLCanvasElement | null = null;
 let ctx: CanvasRenderingContext2D | null = null;
@@ -15,7 +16,7 @@ const commentaryState = {
   popTimer: 0,
 };
 
-const keys = new Set();
+const keys = new Set<string>();
 
 const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
   navigator.userAgent
@@ -35,8 +36,8 @@ interface NetState {
   playerId: string | null;
   team: string | null;
   url: string;
-  prevState: any;
-  currState: any;
+  prevState: NetGameState | null;
+  currState: NetGameState | null;
   lastReceived: number;
   intervalMs: number;
 }
@@ -54,6 +55,67 @@ const net: NetState = {
   intervalMs: 33,
 };
 
+interface Explosion {
+  x: number;
+  y: number;
+  radius: number;
+  life: number;
+  duration: number;
+  particles: {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    life: number;
+    age: number;
+    size: number;
+  }[];
+}
+
+interface Cloud {
+  x: number;
+  y: number;
+  speed: number;
+  alpha: number;
+  puffs: {
+    ox: number;
+    oy: number;
+    rx: number;
+    ry: number;
+  }[];
+  width: number;
+  depth: number;
+}
+
+interface WindGust {
+  dir: number;
+  speed: number;
+  lines: {
+    x: number;
+    y: number;
+    len: number;
+    thickness: number;
+    alpha: number;
+    waveSeed: number;
+  }[];
+  life: number;
+  maxLife: number;
+  progress: number;
+  extraWind: number;
+}
+
+interface HealthPack {
+  x: number;
+  y: number;
+  fallSpeed: number;
+  healAmount: number;
+  swayPhase: number;
+  age: number;
+  grounded: boolean;
+  groundTimer: number;
+  alive: boolean;
+}
+
 interface GameState {
   dpr: number;
   width: number;
@@ -62,24 +124,31 @@ interface GameState {
   worms: Worm[];
   currentIndex: number;
   weaponIndex: number;
-  projectiles: any[];
+  projectiles: Projectile[];
   charging: boolean;
   charge: number;
   chargeDir: number;
   gameOver: boolean;
   winner: string | null;
   aiTimer: number;
-  aiPlan: any;
-  explosions: any[];
+  aiPlan: {
+    phase: string;
+    targetX: number;
+    moveTime: number;
+    angle: number;
+    power: number;
+    weaponIndex: number;
+  } | null;
+  explosions: Explosion[];
   wind: number;
-  clouds: any[];
-  windGusts: any[];
+  clouds: Cloud[];
+  windGusts: WindGust[];
   gustTimer: number;
   gustExtra: number;
   seed: number;
   turnTimer: number;
   turnTimerMax: number;
-  healthPacks: any[];
+  healthPacks: HealthPack[];
   packSpawnTimer: number;
   mapName?: string;
 }
@@ -220,11 +289,11 @@ class GameScene extends Phaser.Scene {
     super("game");
   }
 
-  create(this: any) {
+  create() {
     canvas = this.sys.game.canvas;
     ctx = (this.sys.game.context || canvas!.getContext("2d")) as CanvasRenderingContext2D;
     resize(this.scale.width, this.scale.height);
-    this.scale.on("resize", (gameSize) => {
+    this.scale.on("resize", (gameSize: Phaser.Structs.Size) => {
       resize(gameSize.width, gameSize.height);
     });
     this.sys.game.events.on("postrender", () => {
@@ -233,12 +302,12 @@ class GameScene extends Phaser.Scene {
     bindInput(this);
   }
 
-  update(this: any, _time: number, delta: number) {
+  update(_time: number, delta: number) {
     step(delta / 1000);
   }
 }
 
-const phaserConfig: any = {
+const phaserConfig: Phaser.Types.Core.GameConfig = {
   type: Phaser.CANVAS,
   canvas: document.getElementById("game") as HTMLCanvasElement,
   width: window.innerWidth,
@@ -677,7 +746,7 @@ function updateHealthPacks(dt: number) {
   state.healthPacks = state.healthPacks.filter((p) => p.alive);
 }
 
-function drawHealthPack(pack: any) {
+function drawHealthPack(pack: HealthPack) {
   const boxW = 14;
   const boxH = 12;
   const domeW = 28;
@@ -1233,7 +1302,7 @@ function updateWormClient(worm: Worm, dt: number, isActive: boolean) {
   }
 }
 
-function addProjectile(params: any) {
+function addProjectile(params: Projectile) {
   state.projectiles.push(params);
 }
 

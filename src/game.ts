@@ -131,20 +131,8 @@ export function terrainHeightAt(x: number, terrain: number[], width: number, hei
   return terrain[xi] ?? height;
 }
 
-export interface Worm {
-  id: string;
-  name: string;
-  team: string;
-  color: string;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  angle: number;
-  health: number;
-  alive: boolean;
-  onGround: boolean;
-}
+export { Worm } from "./types.ts";
+import { Worm } from "./types.ts";
 
 export function makeWorm(
   { id, name, team, color, x }: { id: string; name: string; team: string; color: string; x: number },
@@ -173,7 +161,7 @@ export function updateWorm(
   worm: Worm,
   dt: number,
   canMove: boolean,
-  pressed: Set<string> | any,
+  pressed: Set<string>,
   terrain: number[],
   width: number,
   height: number

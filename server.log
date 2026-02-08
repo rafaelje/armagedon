@@ -1,5 +1,0 @@
-
-> eggplosion@0.1.0 server
-> deno run --allow-net --allow-read src/server/index.ts
-
-sh: 1: deno: not found
