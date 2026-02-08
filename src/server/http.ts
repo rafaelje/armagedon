@@ -1,8 +1,8 @@
-import { handleSocket } from "./network.js";
+import { handleSocket } from "./network.ts";
 
 function getContentType(path: string) {
   if (path.endsWith(".html")) return "text/html";
-  if (path.endsWith(".js")) return "application/javascript";
+  if (path.endsWith(".ts")) return "application/javascript";
   if (path.endsWith(".css")) return "text/css";
   if (path.endsWith(".png")) return "image/png";
   if (path.endsWith(".jpg")) return "image/jpeg";

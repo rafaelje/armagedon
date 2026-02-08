@@ -2,12 +2,12 @@ import { jest } from '@jest/globals';
 
 // Mock state module before importing broadcaster
 const mockClients = new Map();
-jest.unstable_mockModule('../../src/server/state.js', () => ({
+jest.unstable_mockModule('../../src/server/state.ts', () => ({
   clients: mockClients
 }));
 
 // Import the module under test
-const { broadcast } = await import('../../src/server/broadcaster.js');
+const { broadcast } = await import('../../src/server/broadcaster.ts');
 
 describe("Broadcaster", () => {
   beforeEach(() => {

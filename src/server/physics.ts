@@ -1,7 +1,7 @@
-import { state } from "./state.js";
-import { config, WIND_SCALE } from "./config.js";
-import { terrainHeightAt, clamp, Worm, Weapon } from "../game.js";
-import { broadcast } from "./broadcaster.js";
+import { state } from "./state.ts";
+import { config, WIND_SCALE } from "./config.ts";
+import { terrainHeightAt, clamp, Worm, Weapon } from "../game.ts";
+import { broadcast } from "./broadcaster.ts";
 
 function addProjectile(params: any) {
   state.projectiles.push(params);

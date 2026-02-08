@@ -1,4 +1,4 @@
-import { PORT, TICK_RATE, WIND_SCALE, GAME_WIDTH, GAME_HEIGHT, config, weapons } from "../../src/server/config.js";
+import { PORT, TICK_RATE, WIND_SCALE, GAME_WIDTH, GAME_HEIGHT, config, weapons } from "../../src/server/config.ts";
 
 describe("Config", () => {
   it("should export correct constants", () => {

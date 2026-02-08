@@ -1,4 +1,4 @@
-import { clients } from "./state.js";
+import { clients } from "./state.ts";
 
 function broadcast(msg: any) {
   const data = JSON.stringify(msg);

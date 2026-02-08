@@ -1,6 +1,6 @@
-import { state } from "../../src/server/state.js";
-import { addProjectile, updateProjectiles, explode } from "../../src/server/physics.js";
-import { buildTerrain } from "../../src/server/terrain.js";
+import { state } from "../../src/server/state.ts";
+import { addProjectile, updateProjectiles, explode } from "../../src/server/physics.ts";
+import { buildTerrain } from "../../src/server/terrain.ts";
 
 describe("Physics", () => {
     beforeEach(() => {

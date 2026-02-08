@@ -1,4 +1,4 @@
-import { clamp, createRng, seededRand } from "../game.js";
+import { clamp, createRng, seededRand } from "../game.ts";
 
 function flattenRange(terrain: number[], x0: number, x1: number, y: number, width: number) {
   const start = Math.floor(clamp(x0, 0, width));

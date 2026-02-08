@@ -1,6 +1,6 @@
-import { state, clients, pressed, getNextClientId, GameState } from "./state.js";
-import { resetGame, getActiveTeam, handleKeyDown, handleKeyUp } from "./game-logic.js";
-import { broadcast } from "./broadcaster.js";
+import { state, clients, pressed, getNextClientId, GameState } from "./state.ts";
+import { resetGame, getActiveTeam, handleKeyDown, handleKeyUp } from "./game-logic.ts";
+import { broadcast } from "./broadcaster.ts";
 
 function snapshot(full = false) {
   const snap: Partial<GameState> = {

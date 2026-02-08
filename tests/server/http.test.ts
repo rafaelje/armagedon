@@ -7,11 +7,11 @@ const mockHandleSocket = jest.fn();
   readFile: jest.fn(),
 };
 
-jest.unstable_mockModule('../../src/server/network.js', () => ({
+jest.unstable_mockModule('../../src/server/network.ts', () => ({
   handleSocket: mockHandleSocket
 }));
 
-const { handler } = (await import('../../src/server/http.js')) as any;
+const { handler } = (await import('../../src/server/http.ts')) as any;
 
 describe("HTTP Handler", () => {
   beforeEach(() => {

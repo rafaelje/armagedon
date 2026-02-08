@@ -1,4 +1,4 @@
-import { GAME_WIDTH, GAME_HEIGHT, Worm } from "../game.js";
+import { GAME_WIDTH, GAME_HEIGHT, Worm } from "../game.ts";
 
 let seed = Math.floor(Math.random() * 1e9);
 let nextId = 1;

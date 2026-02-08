@@ -3,11 +3,12 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "node",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "outDir": "./dist",
     "lib": ["ESNext", "DOM"],
     "types": ["phaser", "node", "jest"]
   },

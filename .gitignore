@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-dist/
 
 # Firebase
 .firebase/
@@ -22,3 +21,4 @@ yarn-error.log*
 # Environment
 .env
 .env.local
+dist/

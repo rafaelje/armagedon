@@ -8,7 +8,7 @@ import {
   updateWorm,
   config,
   Worm
-} from "../src/game.js";
+} from "../src/game.ts";
 
 describe("Game Logic", () => {
   describe("clamp", () => {

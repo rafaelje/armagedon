@@ -1,8 +1,8 @@
-import { state, pressed } from "./state.js";
-import { config, weapons } from "./config.js";
-import { buildTerrain } from "./terrain.js";
-import { updateProjectiles, fireProjectile } from "./physics.js";
-import { makeWorm, updateWorm, Worm } from "../game.js";
+import { state, pressed } from "./state.ts";
+import { config, weapons } from "./config.ts";
+import { buildTerrain } from "./terrain.ts";
+import { updateProjectiles, fireProjectile } from "./physics.ts";
+import { makeWorm, updateWorm, Worm } from "../game.ts";
 
 function createWorms() {
   const left = [state.width * 0.2, state.width * 0.3];
