@@ -1,9 +1,10 @@
-import { state, clients, pressed, getNextClientId } from "./state.mjs";
-import { resetGame, getActiveTeam, handleKeyDown, handleKeyUp } from "./game-logic.mjs";
-import { broadcast } from "./broadcaster.mjs";
+import { state, clients, pressed, getNextClientId } from "./state.ts";
+import type { GameState } from "./state.ts";
+import { resetGame, getActiveTeam, handleKeyDown, handleKeyUp } from "./game-logic.ts";
+import { broadcast } from "./broadcaster.ts";
 
 function snapshot(full = false) {
-  const snap = {
+  const snap: Partial<GameState> = {
     width: state.width,
     height: state.height,
     seed: state.seed,
@@ -50,14 +51,14 @@ function broadcastPlayers() {
   broadcast({ type: "players", players });
 }
 
-function handleSocket(socket) {
+function handleSocket(socket: any) {
   socket.onopen = () => {
     const id = `p${getNextClientId()}`;
     const team = assignTeam();
     clients.set(socket, { id, team });
   };
 
-  socket.onmessage = (event) => {
+  socket.onmessage = (event: any) => {
     let msg = null;
     try {
       msg = JSON.parse(event.data);
@@ -105,9 +106,9 @@ function handleSocket(socket) {
     broadcastPlayers();
   };
 
-  socket.onerror = (e) => {
+  socket.onerror = (e: any) => {
     console.error("WebSocket error:", e);
-    if (socket.readyState !== WebSocket.OPEN) {
+    if (socket.readyState !== 1) { // 1 is WebSocket.OPEN
         clients.delete(socket);
     }
   };

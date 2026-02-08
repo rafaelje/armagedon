@@ -6,8 +6,9 @@ import {
   terrainHeightAt,
   makeWorm,
   updateWorm,
-  config
-} from "../src/game.mjs";
+  config,
+  Worm
+} from "../src/game.ts";
 
 describe("Game Logic", () => {
   describe("clamp", () => {
@@ -62,32 +63,35 @@ describe("Game Logic", () => {
     });
 
     it("should return default height if undefined", () => {
-        const terrain = [];
+        const terrain: number[] = [];
         expect(terrainHeightAt(0, terrain, 3, 100)).toBe(100);
     });
   });
 
   describe("updateWorm", () => {
-     let worm;
-     let terrain;
+     let worm: Worm;
+     let terrain: number[];
      let width = 1000;
      let height = 720;
-     let pressed;
+     let pressed: Set<string>;
 
      beforeEach(() => {
          terrain = new Array(width).fill(500);
          worm = {
              id: 'w1',
-             alive: true,
+             name: 'Test Worm',
+             team: 'Rojo',
+             color: '#ff0000',
              x: 100,
              y: 400,
              vx: 0,
              vy: 0,
-             onGround: true,
-             team: 'Rojo',
-             angle: 45
+             angle: 45,
+             health: 100,
+             alive: true,
+             onGround: true
          };
-         pressed = new Set();
+         pressed = new Set<string>();
      });
 
      it("should move left when ArrowLeft is pressed", () => {

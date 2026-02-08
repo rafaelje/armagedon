@@ -1,5 +1,5 @@
-import { state } from "../../src/server/state.mjs";
-import { resetGame, nextTurn } from "../../src/server/game-logic.mjs";
+import { state } from "../../src/server/state.ts";
+import { resetGame, nextTurn } from "../../src/server/game-logic.ts";
 
 describe("Game Logic", () => {
     beforeEach(() => {

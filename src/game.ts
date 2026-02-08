@@ -1,15 +1,41 @@
-const GAME_WIDTH = 1280;
-const GAME_HEIGHT = 720;
+export const GAME_WIDTH = 1280;
+export const GAME_HEIGHT = 720;
 
-const config = {
+export interface GameConfig {
+  gravity: number;
+  moveSpeed: number;
+  angleSpeed: number;
+  wormRadius: number;
+  chargeRate: number;
+  minWormDistance: number;
+}
+
+export const config: GameConfig = {
   gravity: 900,
   moveSpeed: 90,
   angleSpeed: 90,
   wormRadius: 12,
   chargeRate: 0.9,
+  minWormDistance: 30,
 };
 
-const weapons = [
+export interface Weapon {
+  id: string;
+  name: string;
+  minSpeed: number;
+  maxSpeed: number;
+  explosionRadius: number;
+  maxDamage: number;
+  bounciness: number;
+  fuse: number;
+  gravityScale: number;
+  projectileRadius?: number;
+  burst?: number;
+  burstSpread?: number;
+  burstSpeedJitter?: number;
+}
+
+export const weapons: Weapon[] = [
   {
     id: "bazooka",
     name: "Bazooka",
@@ -72,11 +98,11 @@ const weapons = [
   },
 ];
 
-function clamp(value, min, max) {
+export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function getAimBounds(team) {
+export function getAimBounds(team: string): { min: number; max: number } {
   if (team === "Rojo") {
     return { min: -15, max: 165 };
   }
@@ -86,7 +112,7 @@ function getAimBounds(team) {
   return { min: 15, max: 165 };
 }
 
-function createRng(seedValue) {
+export function createRng(seedValue: number): () => number {
   let t = seedValue >>> 0;
   return () => {
     t += 0x6d2b79f5;
@@ -96,16 +122,24 @@ function createRng(seedValue) {
   };
 }
 
-function seededRand(rng, min, max) {
+export function seededRand(rng: () => number, min: number, max: number): number {
   return rng() * (max - min) + min;
 }
 
-function terrainHeightAt(x, terrain, width, height) {
+export function terrainHeightAt(x: number, terrain: number[], width: number, height: number): number {
   const xi = Math.floor(clamp(x, 0, width - 1));
   return terrain[xi] ?? height;
 }
 
-function makeWorm({ id, name, team, color, x }, terrain, width, height) {
+import type { Worm } from "./types.ts";
+export type { Worm };
+
+export function makeWorm(
+  { id, name, team, color, x }: { id: string; name: string; team: string; color: string; x: number },
+  terrain: number[],
+  width: number,
+  height: number
+): Worm {
   const y = terrainHeightAt(x, terrain, width, height) - config.wormRadius;
   return {
     id,
@@ -123,7 +157,15 @@ function makeWorm({ id, name, team, color, x }, terrain, width, height) {
   };
 }
 
-function updateWorm(worm, dt, canMove, pressed, terrain, width, height) {
+export function updateWorm(
+  worm: Worm,
+  dt: number,
+  canMove: boolean,
+  pressed: Set<string>,
+  terrain: number[],
+  width: number,
+  height: number
+): void {
   if (!worm.alive) return;
 
   if (canMove) {
@@ -169,17 +211,3 @@ function updateWorm(worm, dt, canMove, pressed, terrain, width, height) {
     worm.onGround = true;
   }
 }
-
-export {
-  GAME_WIDTH,
-  GAME_HEIGHT,
-  config,
-  weapons,
-  clamp,
-  getAimBounds,
-  createRng,
-  seededRand,
-  terrainHeightAt,
-  makeWorm,
-  updateWorm,
-};

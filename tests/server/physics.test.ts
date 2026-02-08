@@ -1,6 +1,6 @@
-import { state } from "../../src/server/state.mjs";
-import { addProjectile, updateProjectiles, explode } from "../../src/server/physics.mjs";
-import { buildTerrain } from "../../src/server/terrain.mjs";
+import { state } from "../../src/server/state.ts";
+import { addProjectile, updateProjectiles, explode } from "../../src/server/physics.ts";
+import { buildTerrain } from "../../src/server/terrain.ts";
 
 describe("Physics", () => {
     beforeEach(() => {
@@ -15,7 +15,7 @@ describe("Physics", () => {
 
     describe("addProjectile", () => {
         it("should add a projectile to state", () => {
-            const p = { x: 10, y: 10, vx: 100, vy: 100, timer: 1 };
+            const p: any = { x: 10, y: 10, vx: 100, vy: 100, timer: 1 };
             addProjectile(p);
             expect(state.projectiles).toContain(p);
             expect(state.projectiles.length).toBe(1);
@@ -24,7 +24,7 @@ describe("Physics", () => {
 
     describe("updateProjectiles", () => {
         it("should move projectiles based on velocity", () => {
-            const p = { x: 100, y: 100, vx: 100, vy: 0, gravity: 0, timer: 1, alive: true };
+            const p: any = { x: 100, y: 100, vx: 100, vy: 0, gravity: 0, timer: 1, alive: true };
             addProjectile(p);
             updateProjectiles(0.1);
             expect(state.projectiles[0].x).toBeCloseTo(110);
@@ -32,7 +32,7 @@ describe("Physics", () => {
         });
 
         it("should remove dead projectiles (timer <= 0)", () => {
-             const p = { x: 100, y: 100, vx: 0, vy: 0, gravity: 0, timer: 0.1, alive: true, explosionRadius: 10, maxDamage: 10 };
+             const p: any = { x: 100, y: 100, vx: 0, vy: 0, gravity: 0, timer: 0.1, alive: true, explosionRadius: 10, maxDamage: 10 };
              addProjectile(p);
              updateProjectiles(0.2);
              expect(state.projectiles.length).toBe(0);
@@ -40,7 +40,7 @@ describe("Physics", () => {
 
         it("should explode when hitting terrain", () => {
              for(let i=0; i<state.width; i++) state.terrain[i] = 500;
-             const p = { x: 100, y: 510, vx: 0, vy: 100, gravity: 0, timer: 1, alive: true, explosionRadius: 10, maxDamage: 10 };
+             const p: any = { x: 100, y: 510, vx: 0, vy: 100, gravity: 0, timer: 1, alive: true, explosionRadius: 10, maxDamage: 10 };
              addProjectile(p);
              updateProjectiles(0.1);
              expect(state.projectiles.length).toBe(0);
@@ -49,7 +49,7 @@ describe("Physics", () => {
 
     describe("explode", () => {
         it("should damage worms within radius", () => {
-            const worm = { x: 100, y: 100, health: 100, alive: true, vx: 0, vy: 0 };
+            const worm: any = { x: 100, y: 100, health: 100, alive: true, vx: 0, vy: 0 };
             state.worms.push(worm);
 
             explode(100, 100, 50, 100);

@@ -1,4 +1,4 @@
-import { buildTerrain } from "../../src/server/terrain.mjs";
+import { buildTerrain } from "../../src/server/terrain.ts";
 
 describe("Terrain Generation", () => {
   it("should generate terrain array of correct length", () => {

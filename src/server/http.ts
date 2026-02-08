@@ -1,0 +1,44 @@
+import { handleSocket } from "./network.ts";
+
+function getContentType(path: string) {
+  if (path.endsWith(".html")) return "text/html";
+  if (path.endsWith(".js") || path.endsWith(".ts")) return "application/javascript";
+  if (path.endsWith(".css")) return "text/css";
+  if (path.endsWith(".png")) return "image/png";
+  if (path.endsWith(".jpg")) return "image/jpeg";
+  if (path.endsWith(".svg")) return "image/svg+xml";
+  return "application/octet-stream";
+}
+
+async function handler(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+
+  if (req.headers.get("upgrade") === "websocket") {
+    const { socket, response } = Deno.upgradeWebSocket(req);
+    handleSocket(socket);
+    return response;
+  }
+
+  let pathName = url.pathname;
+  if (pathName === "/") pathName = "/index.html";
+
+  // Security: restrict serving to specific directories
+  const allowedPrefixes = ["/index.html", "/dist/", "/assets/", "/src/style.css"];
+  const isAllowed = allowedPrefixes.some(p => pathName.startsWith(p) || pathName === p);
+
+  if (!isAllowed) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
+  try {
+    const filePath = "." + pathName;
+    const file = await Deno.readFile(filePath);
+    const contentType = getContentType(pathName);
+    // Use 'as any' to avoid type mismatch between Deno and Node/Jest Response bodies
+    return new Response(file as any, { headers: { "content-type": contentType } });
+  } catch {
+    return new Response("Not Found", { status: 404 });
+  }
+}
+
+export { handler };

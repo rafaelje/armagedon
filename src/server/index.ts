@@ -1,7 +1,7 @@
-import { PORT, TICK_RATE } from "./config.mjs";
-import { resetGame, step } from "./game-logic.mjs";
-import { broadcastState } from "./network.mjs";
-import { handler } from "./http.mjs";
+import { PORT, TICK_RATE } from "./config.ts";
+import { resetGame, step } from "./game-logic.ts";
+import { broadcastState } from "./network.ts";
+import { handler } from "./http.ts";
 
 resetGame();
 

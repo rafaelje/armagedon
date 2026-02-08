@@ -1,13 +1,14 @@
-import { state, pressed } from "./state.mjs";
-import { config, weapons } from "./config.mjs";
-import { buildTerrain } from "./terrain.mjs";
-import { updateProjectiles, fireProjectile } from "./physics.mjs";
-import { makeWorm, updateWorm } from "../game.mjs";
+import { state, pressed } from "./state.ts";
+import { config, weapons } from "./config.ts";
+import { buildTerrain } from "./terrain.ts";
+import { updateProjectiles, fireProjectile } from "./physics.ts";
+import { makeWorm, updateWorm } from "../game.ts";
+import type { Worm } from "../game.ts";
 
 function createWorms() {
   const left = [state.width * 0.2, state.width * 0.3];
   const right = [state.width * 0.7, state.width * 0.82];
-  const worms = [];
+  const worms: Worm[] = [];
 
   left.forEach((x, index) => {
     worms.push(makeWorm({
@@ -33,8 +34,8 @@ function createWorms() {
   state.currentIndex = 0;
 }
 
-function resetGame(seedOverride) {
-  if (Number.isFinite(seedOverride)) {
+function resetGame(seedOverride?: number) {
+  if (seedOverride !== undefined && Number.isFinite(seedOverride)) {
     state.seed = Math.floor(seedOverride);
   }
   state.gameOver = false;
@@ -84,7 +85,7 @@ function nextTurn() {
   pressed.clear();
 }
 
-function updateCharge(dt) {
+function updateCharge(dt: number) {
   if (!state.charging) return;
   state.charge += config.chargeRate * dt * state.chargeDir;
   if (state.charge >= 1) {
@@ -97,7 +98,7 @@ function updateCharge(dt) {
   }
 }
 
-function handleKeyDown(code) {
+function handleKeyDown(code: string) {
   if (code === "Space") {
     if (!state.charging && state.projectiles.length === 0 && !state.gameOver) {
       state.charging = true;
@@ -114,7 +115,7 @@ function handleKeyDown(code) {
   if (code === "KeyE") state.weaponIndex = (state.weaponIndex + 1) % weapons.length;
 }
 
-function handleKeyUp(code) {
+function handleKeyUp(code: string) {
   if (code === "Space") {
     if (state.charging && state.projectiles.length === 0 && !state.gameOver) {
       const worm = state.worms[state.currentIndex];
@@ -127,7 +128,7 @@ function handleKeyUp(code) {
   }
 }
 
-function step(dt) {
+function step(dt: number) {
   if (state.gameOver) return;
   state.worms.forEach((worm, index) => {
     const isActive = index === state.currentIndex && worm.alive;

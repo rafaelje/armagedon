@@ -1,13 +1,14 @@
-import { state } from "./state.mjs";
-import { config, WIND_SCALE } from "./config.mjs";
-import { terrainHeightAt, clamp } from "../game.mjs";
-import { broadcast } from "./broadcaster.mjs";
+import { state } from "./state.ts";
+import { config, WIND_SCALE } from "./config.ts";
+import { terrainHeightAt, clamp } from "../game.ts";
+import type { Worm, Weapon } from "../game.ts";
+import { broadcast } from "./broadcaster.ts";
 
-function addProjectile(params) {
+function addProjectile(params: any) {
   state.projectiles.push(params);
 }
 
-function fireProjectile(worm, power, weapon) {
+function fireProjectile(worm: Worm, power: number, weapon: Weapon) {
   const burst = weapon.burst ?? 1;
   const spread = weapon.burstSpread ?? 0;
   const jitter = weapon.burstSpeedJitter ?? 0;
@@ -41,9 +42,9 @@ function fireProjectile(worm, power, weapon) {
   }
 }
 
-function updateProjectiles(dt) {
+function updateProjectiles(dt: number) {
   if (state.projectiles.length === 0) return;
-  const next = [];
+  const next: any[] = [];
 
   state.projectiles.forEach((p) => {
     p.vx += state.wind * WIND_SCALE * dt;
@@ -79,10 +80,9 @@ function updateProjectiles(dt) {
   });
 
   state.projectiles = next;
-  // NOTE: nextTurn call removed, handled in game-logic.mjs
 }
 
-function explode(x, y, radius, maxDamage) {
+function explode(x: number, y: number, radius: number, maxDamage: number) {
   carveCrater(x, y, radius);
   broadcast({ type: "crater", x, y, radius });
 
@@ -109,7 +109,7 @@ function explode(x, y, radius, maxDamage) {
   });
 }
 
-function carveCrater(cx, cy, radius) {
+function carveCrater(cx: number, cy: number, radius: number) {
   const start = Math.floor(clamp(cx - radius, 0, state.width));
   const end = Math.floor(clamp(cx + radius, 0, state.width));
   for (let x = start; x <= end; x += 1) {

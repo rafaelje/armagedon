@@ -1,12 +1,19 @@
-import { GAME_WIDTH, GAME_HEIGHT } from "../game.mjs";
+import { GAME_WIDTH, GAME_HEIGHT } from "../game.ts";
+import type { Worm, Projectile, GameState } from "../types.ts";
+export type { Worm, Projectile, GameState };
 
 let seed = Math.floor(Math.random() * 1e9);
 let nextId = 1;
 
-const clients = new Map();
-const pressed = new Set();
+export interface ClientInfo {
+  id: string;
+  team: string;
+}
 
-const state = {
+const clients = new Map<any, ClientInfo>();
+const pressed = new Set<string>();
+
+const state: GameState = {
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
   terrain: [],

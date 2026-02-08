@@ -15,8 +15,19 @@ jobs:
       - name: Clone repository
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build client
+        run: npm run build
+
       - name: Deploy to Deno Deploy
         uses: denoland/deployctl@v1
         with:
-          project: "worms-armageddon-mp"
-          entrypoint: "src/server.js"
+          project: "eggplosion"
+          entrypoint: "src/server/index.ts"
