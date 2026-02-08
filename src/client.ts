@@ -7,6 +7,7 @@ import {
 let canvas: HTMLCanvasElement | null = null;
 let ctx: CanvasRenderingContext2D | null = null;
 
+
 const commentaryState = {
   text: "",
   timer: 0,
@@ -186,8 +187,32 @@ const commentary = {
   ],
 };
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
+}
+
+function getAimBounds(team) {
+  if (team === "Rojo") {
+    return { min: -15, max: 165 };
+  }
+  if (team === "Azul") {
+    return { min: 15, max: 195 };
+  }
+  return { min: 15, max: 165 };
+}
+
+function createRng(seed) {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 class GameScene extends Phaser.Scene {
@@ -197,9 +222,9 @@ class GameScene extends Phaser.Scene {
 
   create(this: any) {
     canvas = this.sys.game.canvas;
-    ctx = this.sys.game.context || canvas.getContext("2d");
+    ctx = (this.sys.game.context || canvas!.getContext("2d")) as CanvasRenderingContext2D;
     resize(this.scale.width, this.scale.height);
-    this.scale.on("resize", (gameSize: any) => {
+    this.scale.on("resize", (gameSize) => {
       resize(gameSize.width, gameSize.height);
     });
     this.sys.game.events.on("postrender", () => {
@@ -231,6 +256,10 @@ new Phaser.Game(phaserConfig);
 
 function rand(min: number, max: number) {
   return Math.random() * (max - min) + min;
+}
+
+function seededRand(rng, min, max) {
+  return rng() * (max - min) + min;
 }
 
 function ensureVisuals() {
@@ -469,7 +498,7 @@ function flattenRange(x0: number, x1: number, y: number) {
 function createWormsLocal() {
   const left = [state.width * 0.2, state.width * 0.3];
   const right = [state.width * 0.7, state.width * 0.82];
-  const worms: Worm[] = [];
+  const worms = [];
 
   left.forEach((x, index) => {
     worms.push(makeWormLocal({
@@ -602,7 +631,7 @@ function spawnHealthPack() {
   state.healthPacks.push(pack);
 }
 
-function updateHealthPacks(dt) {
+function updateHealthPacks(dt: number) {
   for (const pack of state.healthPacks) {
     if (!pack.alive) continue;
     pack.age += dt;
@@ -648,7 +677,7 @@ function updateHealthPacks(dt) {
   state.healthPacks = state.healthPacks.filter((p) => p.alive);
 }
 
-function drawHealthPack(pack) {
+function drawHealthPack(pack: any) {
   const boxW = 14;
   const boxH = 12;
   const domeW = 28;
@@ -915,7 +944,7 @@ function connectNet() {
   });
 }
 
-function evaluateShotFromPosition(px, py, targets) {
+function evaluateShotFromPosition(px: number, py: number, targets: Worm[]) {
   const weapon = weapons[0];
   const target = targets.reduce((closest, current) => {
     return Math.abs(current.x - px) < Math.abs(closest.x - px) ? current : closest;
@@ -935,7 +964,7 @@ function evaluateShotFromPosition(px, py, targets) {
   return best;
 }
 
-function planAIMove(worm) {
+function planAIMove(worm: Worm) {
   const targets = state.worms.filter((w) => w.alive && w.team !== worm.team);
   if (targets.length === 0) return worm.x;
 
@@ -973,7 +1002,7 @@ function planAIMove(worm) {
 
 function updateAI(dt: number) {
   if (!aiConfig.enabled || state.gameOver || state.projectiles.length > 0 || state.charging) return;
-  const worm: Worm = state.worms[state.currentIndex];
+  const worm = state.worms[state.currentIndex];
   if (!worm || !worm.alive || worm.team !== aiConfig.team) return;
 
   if (!state.aiPlan) {
@@ -1426,7 +1455,7 @@ function drawTerrain() {
   ctx.stroke(edgePath);
 }
 
-function buildTerrainPath() {
+function buildTerrainLocalPath() {
   const path = new Path2D();
   path.moveTo(0, state.height);
   path.lineTo(0, state.terrain[0]);
@@ -1438,7 +1467,7 @@ function buildTerrainPath() {
   return path;
 }
 
-function buildTerrainEdgePath() {
+function buildTerrainLocalEdgePath() {
   const path = new Path2D();
   path.moveTo(0, state.terrain[0]);
   for (let x = 1; x < state.terrain.length; x += 1) {
@@ -1502,7 +1531,7 @@ function drawTrajectory() {
   ctx.restore();
 }
 
-function drawWeaponIcon(weaponId, x, y, scale) {
+function drawWeaponIcon(weaponId: string, x: number, y: number, scale: number) {
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
@@ -1624,7 +1653,7 @@ function drawWeaponIcon(weaponId, x, y, scale) {
   ctx.restore();
 }
 
-function drawWormWeapon(worm, rad, weaponId) {
+function drawWormWeapon(worm: Worm, rad: number, weaponId: string) {
   ctx.save();
   ctx.translate(worm.x, worm.y);
   ctx.rotate(-rad);
@@ -1739,7 +1768,7 @@ function drawWormWeapon(worm, rad, weaponId) {
   ctx.restore();
 }
 
-function drawWorm(worm, isCurrent) {
+function drawWorm(worm: Worm, isCurrent: boolean) {
   if (!worm.alive) return;
   const r = config.wormRadius;
   const rad = (worm.angle * Math.PI) / 180;
@@ -1989,7 +2018,7 @@ function drawWorm(worm, isCurrent) {
   drawPowerBar(worm, isCurrent);
 }
 
-function drawPowerBar(worm, isCurrent) {
+function drawPowerBar(worm: Worm, isCurrent: boolean) {
   const barWidth = 40;
   const barHeight = 6;
   const x = worm.x - barWidth / 2;
@@ -2068,7 +2097,7 @@ function drawExplosions() {
 }
 const hudWeaponSlots = [];
 
-function drawRoundedRect(x, y, w, h, r) {
+function drawRoundedRect(x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.lineTo(x + w - r, y);
@@ -2182,7 +2211,7 @@ function initClouds() {
   }
 }
 
-function createCloud(initial) {
+function createCloud(initial: boolean) {
   const w = state.width;
   const h = state.height;
   const cloudW = 60 + Math.random() * 100;
@@ -2207,7 +2236,7 @@ function createCloud(initial) {
   };
 }
 
-function updateClouds(dt) {
+function updateClouds(dt: number) {
   const windDrift = getEffectiveWind() * 3;
   for (let i = state.clouds.length - 1; i >= 0; i--) {
     const c = state.clouds[i];
@@ -2246,7 +2275,7 @@ function drawClouds() {
 
 // ==================== Wind Gusts (comic style) ====================
 
-function updateWindGusts(dt) {
+function updateWindGusts(dt: number) {
   state.gustTimer -= dt;
   if (state.gustTimer <= 0) {
     state.gustTimer = 20 + Math.random() * 40;
@@ -2565,7 +2594,7 @@ function drawStatusBar() {
   ctx.restore();
 }
 
-function drawCommentatorAvatar(cx, cy, scale) {
+function drawCommentatorAvatar(cx: number, cy: number, scale: number) {
   const s = scale;
   ctx.save();
   ctx.translate(cx, cy);
@@ -2690,7 +2719,7 @@ function drawCommentatorAvatar(cx, cy, scale) {
   ctx.restore();
 }
 
-function drawSpeechBubble(bx, by, bw, bh, tailX, tailY) {
+function drawSpeechBubble(bx: number, by: number, bw: number, bh: number, tailX: number, tailY: number) {
   const r = 10;
   ctx.beginPath();
   ctx.moveTo(bx + r, by);
@@ -2711,7 +2740,7 @@ function drawSpeechBubble(bx, by, bw, bh, tailX, tailY) {
   ctx.closePath();
 }
 
-function wrapText(text, maxWidth) {
+function wrapText(text: string, maxWidth: number) {
   const words = text.split(" ");
   const lines = [];
   let current = "";
