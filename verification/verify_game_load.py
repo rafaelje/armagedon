@@ -4,7 +4,7 @@ from playwright.sync_api import sync_playwright
 
 def verify_game_load():
     # Start the WebSocket server on port 8080
-    ws_server_process = subprocess.Popen(["node", "src/server.js"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    ws_server_process = subprocess.Popen(["npx", "tsx", "src/server.ts"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     # Start a static file server on port 8000 to serve the frontend
     static_server_process = subprocess.Popen(["python3", "-m", "http.server", "8000"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)

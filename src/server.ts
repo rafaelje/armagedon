@@ -1,13 +1,15 @@
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
-const {
+import http from "node:http";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { WebSocketServer, WebSocket } from "ws";
+import {
   GAME_WIDTH, GAME_HEIGHT, config, weapons,
   clamp, getAimBounds, createRng, seededRand,
-  terrainHeightAt, makeWorm, updateWorm
-} = require("./game.js");
+  terrainHeightAt, makeWorm, updateWorm,
+  Worm, Weapon
+} from "./game.js";
 
-const PORT = Deno.env.get("PORT") ? Number(Deno.env.get("PORT")) : 8080;
+const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 
 const TICK_RATE = 30;
 const WIND_SCALE = 20;
@@ -15,10 +17,52 @@ const WIND_SCALE = 20;
 let seed = Math.floor(Math.random() * 1e9);
 let nextId = 1;
 
-const clients = new Map();
-const pressed = new Set();
+interface ClientInfo {
+  id: string;
+  team: string;
+}
 
-const state = {
+const clients = new Map<WebSocket, ClientInfo>();
+const pressed = new Set<string>();
+
+interface Projectile {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+  weaponId: string;
+  explosionRadius: number;
+  maxDamage: number;
+  bounciness: number;
+  fuse: number;
+  timer: number;
+  gravity: number;
+  bounces: number;
+  alive: boolean;
+}
+
+interface GameState {
+  width: number;
+  height: number;
+  terrain: number[];
+  worms: Worm[];
+  currentIndex: number;
+  weaponIndex: number;
+  projectiles: Projectile[];
+  charging: boolean;
+  charge: number;
+  chargeDir: number;
+  gameOver: boolean;
+  winner: string | null;
+  wind: number;
+  seed: number;
+  turnTimer: number;
+  turnTimerMax: number;
+  mapName?: string;
+}
+
+const state: GameState = {
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
   terrain: [],
@@ -37,7 +81,7 @@ const state = {
   turnTimerMax: 30,
 };
 
-function flattenRange(x0, x1, y) {
+function flattenRange(x0: number, x1: number, y: number) {
   const start = Math.floor(clamp(x0, 0, state.width));
   const end = Math.floor(clamp(x1, 0, state.width));
   for (let x = start; x <= end; x += 1) {
@@ -45,7 +89,7 @@ function flattenRange(x0, x1, y) {
   }
 }
 
-function smoothTerrain(passes) {
+function smoothTerrain(passes: number) {
   for (let p = 0; p < passes; p++) {
     const copy = [...state.terrain];
     for (let x = 1; x < state.terrain.length - 1; x++) {
@@ -54,7 +98,7 @@ function smoothTerrain(passes) {
   }
 }
 
-function avgTerrainHeight(x0, x1) {
+function avgTerrainHeight(x0: number, x1: number) {
   let sum = 0;
   let count = 0;
   for (let x = x0; x <= x1; x++) {
@@ -64,7 +108,7 @@ function avgTerrainHeight(x0, x1) {
   return count > 0 ? sum / count : state.height * 0.6;
 }
 
-function generateMapName(rng) {
+function generateMapName(rng: () => number) {
   const adj = [
     "Salvaje", "Árido", "Olvidado", "Caótico", "Maldito",
     "Perdido", "Bravo", "Oscuro", "Lejano", "Helado",
@@ -87,7 +131,7 @@ function buildTerrain() {
   const base = seededRand(rng, h * 0.58, h * 0.75);
 
   const numWaves = Math.floor(seededRand(rng, 2, 6));
-  const waves = [];
+  const waves: { freq: number; amp: number; phase: number }[] = [];
   for (let i = 0; i < numWaves; i++) {
     waves.push({
       freq: seededRand(rng, 0.004, 0.045),
@@ -157,7 +201,7 @@ function buildTerrain() {
 function createWorms() {
   const left = [state.width * 0.2, state.width * 0.3];
   const right = [state.width * 0.7, state.width * 0.82];
-  const worms = [];
+  const worms: Worm[] = [];
 
   left.forEach((x, index) => {
     worms.push(makeWorm({
@@ -183,8 +227,8 @@ function createWorms() {
   state.currentIndex = 0;
 }
 
-function resetGame(seedOverride) {
-  if (Number.isFinite(seedOverride)) {
+function resetGame(seedOverride?: number) {
+  if (seedOverride !== undefined && Number.isFinite(seedOverride)) {
     state.seed = Math.floor(seedOverride);
   }
   state.gameOver = false;
@@ -230,11 +274,11 @@ function nextTurn() {
   pressed.clear();
 }
 
-function addProjectile(params) {
+function addProjectile(params: Projectile) {
   state.projectiles.push(params);
 }
 
-function fireProjectile(worm, power, weapon) {
+function fireProjectile(worm: Worm, power: number, weapon: Weapon) {
   const burst = weapon.burst ?? 1;
   const spread = weapon.burstSpread ?? 0;
   const jitter = weapon.burstSpeedJitter ?? 0;
@@ -268,9 +312,9 @@ function fireProjectile(worm, power, weapon) {
   }
 }
 
-function updateProjectiles(dt) {
+function updateProjectiles(dt: number) {
   if (state.projectiles.length === 0) return;
-  const next = [];
+  const next: Projectile[] = [];
 
   state.projectiles.forEach((p) => {
     p.vx += state.wind * WIND_SCALE * dt;
@@ -311,7 +355,7 @@ function updateProjectiles(dt) {
   }
 }
 
-function explode(x, y, radius, maxDamage) {
+function explode(x: number, y: number, radius: number, maxDamage: number) {
   carveCrater(x, y, radius);
   broadcast({ type: "crater", x, y, radius });
 
@@ -338,7 +382,7 @@ function explode(x, y, radius, maxDamage) {
   });
 }
 
-function carveCrater(cx, cy, radius) {
+function carveCrater(cx: number, cy: number, radius: number) {
   const start = Math.floor(clamp(cx - radius, 0, state.width));
   const end = Math.floor(clamp(cx + radius, 0, state.width));
   for (let x = start; x <= end; x += 1) {
@@ -351,7 +395,7 @@ function carveCrater(cx, cy, radius) {
   }
 }
 
-function updateCharge(dt) {
+function updateCharge(dt: number) {
   if (!state.charging) return;
   state.charge += config.chargeRate * dt * state.chargeDir;
   if (state.charge >= 1) {
@@ -364,7 +408,7 @@ function updateCharge(dt) {
   }
 }
 
-function handleKeyDown(code) {
+function handleKeyDown(code: string) {
   if (code === "Space") {
     if (!state.charging && state.projectiles.length === 0 && !state.gameOver) {
       state.charging = true;
@@ -381,7 +425,7 @@ function handleKeyDown(code) {
   if (code === "KeyE") state.weaponIndex = (state.weaponIndex + 1) % weapons.length;
 }
 
-function handleKeyUp(code) {
+function handleKeyUp(code: string) {
   if (code === "Space") {
     if (state.charging && state.projectiles.length === 0 && !state.gameOver) {
       const worm = state.worms[state.currentIndex];
@@ -394,7 +438,7 @@ function handleKeyUp(code) {
   }
 }
 
-function step(dt) {
+function step(dt: number) {
   if (state.gameOver) return;
   state.worms.forEach((worm, index) => {
     const isActive = index === state.currentIndex && worm.alive;
@@ -420,7 +464,7 @@ function step(dt) {
 }
 
 function snapshot(full = false) {
-  const snap = {
+  const snap: Partial<GameState> = {
     width: state.width,
     height: state.height,
     seed: state.seed,
@@ -435,6 +479,7 @@ function snapshot(full = false) {
     wind: state.wind,
     turnTimer: state.turnTimer,
     turnTimerMax: state.turnTimerMax,
+    mapName: state.mapName,
   };
   if (full) {
     snap.terrain = state.terrain;
@@ -442,7 +487,7 @@ function snapshot(full = false) {
   return snap;
 }
 
-function broadcast(msg) {
+function broadcast(msg: any) {
   const data = JSON.stringify(msg);
   for (const socket of clients.keys()) {
     if (socket.readyState === WebSocket.OPEN) {
@@ -476,17 +521,15 @@ function broadcastPlayers() {
   broadcast({ type: "players", players });
 }
 
-function handleSocket(socket) {
-  socket.onopen = () => {
-    const id = `p${nextId++}`;
-    const team = assignTeam();
-    clients.set(socket, { id, team });
-  };
+function handleSocket(socket: WebSocket) {
+  const id = `p${nextId++}`;
+  const team = assignTeam();
+  clients.set(socket, { id, team });
 
-  socket.onmessage = (event) => {
+  socket.on("message", (data) => {
     let msg = null;
     try {
-      msg = JSON.parse(event.data);
+      msg = JSON.parse(data.toString());
     } catch {
       return;
     }
@@ -525,56 +568,63 @@ function handleSocket(socket) {
       resetGame(seed);
       broadcast({ type: "reset", state: snapshot(true) });
     }
-  };
+  });
 
-  socket.onclose = () => {
+  socket.on("close", () => {
     clients.delete(socket);
     broadcastPlayers();
-  };
+  });
 
-  socket.onerror = (e) => {
+  socket.on("error", (e) => {
     console.error("WebSocket error:", e);
-    if (socket.readyState !== WebSocket.OPEN) {
-        clients.delete(socket);
-    }
-  };
+    clients.delete(socket);
+  });
 }
 
-async function handler(req) {
-  const url = new URL(req.url);
+function getContentType(filePath: string) {
+  const ext = path.extname(filePath).toLowerCase();
+  const types: Record<string, string> = {
+    ".html": "text/html",
+    ".js": "application/javascript",
+    ".css": "text/css",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".svg": "image/svg+xml",
+  };
+  return types[ext] || "application/octet-stream";
+}
 
-  if (req.headers.get("upgrade") === "websocket") {
-    const { socket, response } = Deno.upgradeWebSocket(req);
-    handleSocket(socket);
-    return response;
+const server = http.createServer(async (req, res) => {
+  let urlPath = req.url || "/";
+  if (urlPath === "/") urlPath = "/index.html";
+
+  // Security: prevent directory traversal
+  const safePath = path.normalize(urlPath).replace(/^(\.\.[\/\\])+/, '');
+
+  // Only allow serving from specific directories or specific files
+  const allowedPaths = ["/index.html", "/dist/", "/assets/", "/src/style.css"];
+  const isAllowed = allowedPaths.some(p => safePath.startsWith(p) || safePath === p);
+
+  if (!isAllowed) {
+    res.writeHead(403);
+    res.end("Forbidden");
+    return;
   }
 
-  let path = url.pathname;
-  if (path === "/") path = "/index.html";
-  if (path === "/src/main.js") {
-     // No redirection needed, it should fail to find src/main.js as it is now deleted in next step
-     // but src/server.js is the entry point
-  }
+  const filePath = path.join(process.cwd(), safePath);
 
   try {
-    const filePath = "." + path;
-    const file = await Deno.readFile(filePath);
-    const contentType = getContentType(path);
-    return new Response(file, { headers: { "content-type": contentType } });
+    const content = await fs.readFile(filePath);
+    res.writeHead(200, { "Content-Type": getContentType(filePath) });
+    res.end(content);
   } catch {
-    return new Response("Not Found", { status: 404 });
+    res.writeHead(404);
+    res.end("Not Found");
   }
-}
+});
 
-function getContentType(path) {
-  if (path.endsWith(".html")) return "text/html";
-  if (path.endsWith(".js")) return "application/javascript";
-  if (path.endsWith(".css")) return "text/css";
-  if (path.endsWith(".png")) return "image/png";
-  if (path.endsWith(".jpg")) return "image/jpeg";
-  if (path.endsWith(".svg")) return "image/svg+xml";
-  return "application/octet-stream";
-}
+const wss = new WebSocketServer({ server });
+wss.on("connection", handleSocket);
 
 resetGame(seed);
 setInterval(() => {
@@ -582,5 +632,6 @@ setInterval(() => {
   broadcastState(false);
 }, 1000 / TICK_RATE);
 
-console.log(`Deno server running on port ${PORT}`);
-Deno.serve({ port: PORT, handler });
+server.listen(PORT, () => {
+  console.log(`Node.js server running on port ${PORT}`);
+});

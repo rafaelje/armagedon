@@ -1,5 +1,11 @@
-let canvas = null;
-let ctx = null;
+/// <reference types="phaser" />
+import {
+  clamp, getAimBounds, createRng, seededRand,
+  Worm, Weapon, config, weapons
+} from "./game.js";
+
+let canvas: HTMLCanvasElement | null = null;
+let ctx: CanvasRenderingContext2D | null = null;
 
 const commentaryState = {
   text: "",
@@ -14,14 +20,27 @@ const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/
   navigator.userAgent
 ) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
 
-if (isMobile && screen.orientation && screen.orientation.lock) {
-  screen.orientation.lock("landscape").catch(() => {});
+if (isMobile && screen.orientation && (screen.orientation as any).lock) {
+  (screen.orientation as any).lock("landscape").catch(() => {});
 }
 
 const touchButtons = [];
 const activeTouches = new Map();
 
-const net = {
+interface NetState {
+  enabled: boolean;
+  ws: WebSocket | null;
+  connected: boolean;
+  playerId: string | null;
+  team: string | null;
+  url: string;
+  prevState: any;
+  currState: any;
+  lastReceived: number;
+  intervalMs: number;
+}
+
+const net: NetState = {
   enabled: false,
   ws: null,
   connected: false,
@@ -34,7 +53,37 @@ const net = {
   intervalMs: 33,
 };
 
-const state = {
+interface GameState {
+  dpr: number;
+  width: number;
+  height: number;
+  terrain: number[];
+  worms: Worm[];
+  currentIndex: number;
+  weaponIndex: number;
+  projectiles: any[];
+  charging: boolean;
+  charge: number;
+  chargeDir: number;
+  gameOver: boolean;
+  winner: string | null;
+  aiTimer: number;
+  aiPlan: any;
+  explosions: any[];
+  wind: number;
+  clouds: any[];
+  windGusts: any[];
+  gustTimer: number;
+  gustExtra: number;
+  seed: number;
+  turnTimer: number;
+  turnTimerMax: number;
+  healthPacks: any[];
+  packSpawnTimer: number;
+  mapName?: string;
+}
+
+const state: GameState = {
   dpr: 1,
   width: 0,
   height: 0,
@@ -63,7 +112,15 @@ const state = {
   packSpawnTimer: 0,
 };
 
-const visuals = {
+interface VisualsState {
+  width: number;
+  height: number;
+  seed: number;
+  bgCanvas: HTMLCanvasElement | null;
+  soilPattern: CanvasPattern | null;
+}
+
+const visuals: VisualsState = {
   width: 0,
   height: 0,
   seed: 0,
@@ -72,78 +129,6 @@ const visuals = {
 };
 
 const WIND_SCALE = 20;
-
-const config = {
-  gravity: 900,
-  moveSpeed: 90,
-  angleSpeed: 90,
-  wormRadius: 12,
-  chargeRate: 0.9,
-  minWormDistance: 30,
-};
-
-const weapons = [
-  {
-    id: "bazooka",
-    name: "Bazooka",
-    minSpeed: 400,
-    maxSpeed: 1200,
-    explosionRadius: 55,
-    maxDamage: 60,
-    bounciness: 0,
-    fuse: 0,
-    gravityScale: 0.9,
-  },
-  {
-    id: "grenade",
-    name: "Granada",
-    minSpeed: 400,
-    maxSpeed: 1200,
-    explosionRadius: 70,
-    maxDamage: 75,
-    bounciness: 0.45,
-    fuse: 6.6,
-    gravityScale: 0.9,
-  },
-  {
-    id: "mortar",
-    name: "Mortero",
-    minSpeed: 400,
-    maxSpeed: 1200,
-    explosionRadius: 85,
-    maxDamage: 90,
-    bounciness: 0,
-    fuse: 0,
-    gravityScale: 0.9,
-  },
-  {
-    id: "sniper",
-    name: "Sniper",
-    minSpeed: 400,
-    maxSpeed: 1200,
-    explosionRadius: 26,
-    maxDamage: 85,
-    bounciness: 0,
-    fuse: 0,
-    gravityScale: 0.9,
-    projectileRadius: 3,
-  },
-  {
-    id: "pistol",
-    name: "Pistola x3",
-    minSpeed: 400,
-    maxSpeed: 1200,
-    explosionRadius: 18,
-    maxDamage: 22,
-    bounciness: 0,
-    fuse: 0,
-    gravityScale: 0.9,
-    projectileRadius: 3,
-    burst: 3,
-    burstSpread: 6,
-    burstSpeedJitter: 0.04,
-  },
-];
 
 const aiConfig = {
   enabled: true,
@@ -201,32 +186,8 @@ const commentary = {
   ],
 };
 
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function lerp(a, b, t) {
+function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
-}
-
-function getAimBounds(team) {
-  if (team === "Rojo") {
-    return { min: -15, max: 165 };
-  }
-  if (team === "Azul") {
-    return { min: 15, max: 195 };
-  }
-  return { min: 15, max: 165 };
-}
-
-function createRng(seed) {
-  let t = seed >>> 0;
-  return () => {
-    t += 0x6d2b79f5;
-    let r = Math.imul(t ^ (t >>> 15), 1 | t);
-    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
-    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 class GameScene extends Phaser.Scene {
@@ -234,11 +195,11 @@ class GameScene extends Phaser.Scene {
     super("game");
   }
 
-  create() {
+  create(this: any) {
     canvas = this.sys.game.canvas;
     ctx = this.sys.game.context || canvas.getContext("2d");
     resize(this.scale.width, this.scale.height);
-    this.scale.on("resize", (gameSize) => {
+    this.scale.on("resize", (gameSize: any) => {
       resize(gameSize.width, gameSize.height);
     });
     this.sys.game.events.on("postrender", () => {
@@ -247,14 +208,14 @@ class GameScene extends Phaser.Scene {
     bindInput(this);
   }
 
-  update(_time, delta) {
+  update(this: any, _time: number, delta: number) {
     step(delta / 1000);
   }
 }
 
-const phaserConfig = {
+const phaserConfig: any = {
   type: Phaser.CANVAS,
-  canvas: document.getElementById("game"),
+  canvas: document.getElementById("game") as HTMLCanvasElement,
   width: window.innerWidth,
   height: window.innerHeight,
   backgroundColor: "#000000",
@@ -268,12 +229,8 @@ const phaserConfig = {
 new Phaser.Game(phaserConfig);
 // connectNet(); // Moved to UI interaction
 
-function rand(min, max) {
+function rand(min: number, max: number) {
   return Math.random() * (max - min) + min;
-}
-
-function seededRand(rng, min, max) {
-  return rng() * (max - min) + min;
 }
 
 function ensureVisuals() {
@@ -378,12 +335,12 @@ function buildSoilPattern() {
   visuals.soilPattern = ctx.createPattern(texture, "repeat");
 }
 
-function terrainHeightAt(x) {
+function terrainHeightAt(x: number) {
   const xi = Math.floor(clamp(x, 0, state.width - 1));
   return state.terrain[xi] ?? state.height;
 }
 
-function buildTerrain() {
+function buildTerrainLocal() {
   const w = state.width;
   const h = state.height;
   const rng = createRng(state.seed || 1);
@@ -465,10 +422,10 @@ function buildTerrain() {
   flattenRange(w * 0.68, w * 0.84, clamp(rightAvg, h * 0.43, h * 0.78));
 
   // --- Generate random map name ---
-  state.mapName = generateMapName(rng);
+  state.mapName = generateMapNameLocal(rng);
 }
 
-function smoothTerrain(passes) {
+function smoothTerrain(passes: number) {
   for (let p = 0; p < passes; p++) {
     const copy = [...state.terrain];
     for (let x = 1; x < state.terrain.length - 1; x++) {
@@ -477,7 +434,7 @@ function smoothTerrain(passes) {
   }
 }
 
-function generateMapName(rng) {
+function generateMapNameLocal(rng: () => number) {
   const adj = [
     "Salvaje", "Árido", "Olvidado", "Caótico", "Maldito",
     "Perdido", "Bravo", "Oscuro", "Lejano", "Helado",
@@ -491,7 +448,7 @@ function generateMapName(rng) {
   return `${noun[Math.floor(rng() * noun.length)]} ${adj[Math.floor(rng() * adj.length)]}`;
 }
 
-function avgTerrainHeight(x0, x1) {
+function avgTerrainHeight(x0: number, x1: number) {
   let sum = 0;
   let count = 0;
   for (let x = x0; x <= x1; x++) {
@@ -501,7 +458,7 @@ function avgTerrainHeight(x0, x1) {
   return count > 0 ? sum / count : state.height * 0.6;
 }
 
-function flattenRange(x0, x1, y) {
+function flattenRange(x0: number, x1: number, y: number) {
   const start = Math.floor(clamp(x0, 0, state.width));
   const end = Math.floor(clamp(x1, 0, state.width));
   for (let x = start; x <= end; x += 1) {
@@ -509,13 +466,13 @@ function flattenRange(x0, x1, y) {
   }
 }
 
-function createWorms() {
+function createWormsLocal() {
   const left = [state.width * 0.2, state.width * 0.3];
   const right = [state.width * 0.7, state.width * 0.82];
-  const worms = [];
+  const worms: Worm[] = [];
 
   left.forEach((x, index) => {
-    worms.push(makeWorm({
+    worms.push(makeWormLocal({
       id: `R${index + 1}`,
       name: `Rojo ${index + 1}`,
       team: "Rojo",
@@ -525,7 +482,7 @@ function createWorms() {
   });
 
   right.forEach((x, index) => {
-    worms.push(makeWorm({
+    worms.push(makeWormLocal({
       id: `A${index + 1}`,
       name: `Azul ${index + 1}`,
       team: "Azul",
@@ -538,7 +495,7 @@ function createWorms() {
   state.currentIndex = 0;
 }
 
-function makeWorm({ id, name, team, color, x }) {
+function makeWormLocal({ id, name, team, color, x }: { id: string, name: string, team: string, color: string, x: number }): Worm {
   const y = terrainHeightAt(x) - config.wormRadius;
   return {
     id,
@@ -556,7 +513,7 @@ function makeWorm({ id, name, team, color, x }) {
   };
 }
 
-function resetGame(seedOverride) {
+function resetGame(seedOverride?: number) {
   if (Number.isFinite(seedOverride)) {
     state.seed = Math.floor(seedOverride);
   }
@@ -574,8 +531,8 @@ function resetGame(seedOverride) {
   state.turnTimer = state.turnTimerMax;
   state.healthPacks = [];
   state.packSpawnTimer = 20 + Math.random() * 10;
-  buildTerrain();
-  createWorms();
+  buildTerrainLocal();
+  createWormsLocal();
   updateHud();
   state.wind = Math.floor(rand(-5, 5));
   initClouds();
@@ -585,7 +542,7 @@ function resetGame(seedOverride) {
   }
 }
 
-function resize(width, height) {
+function resize(width: number, height: number) {
   if (!canvas || !ctx) return;
   state.dpr = 1;
   const nextWidth = Math.floor(width);
@@ -613,15 +570,15 @@ function getCurrentWeapon() {
   return weapons[state.weaponIndex] ?? weapons[0];
 }
 
-function setWeapon(index) {
+function setWeapon(index: number) {
   if (state.projectiles.length > 0 || state.charging || state.gameOver) return;
   const next = (index + weapons.length) % weapons.length;
   state.weaponIndex = next;
   updateHud();
 }
 
-function sayComment(type, extra = {}) {
-  const list = commentary[type] || commentary.fire;
+function sayComment(type: keyof typeof commentary, extra: { name?: string, weapon?: string } = {}) {
+  const list = (commentary[type] as string[]) || (commentary.fire as string[]);
   let text = list[Math.floor(Math.random() * list.length)];
   if (extra.name) text = text.replaceAll("{name}", extra.name);
   if (extra.weapon) text = text.replaceAll("{weapon}", extra.weapon);
@@ -801,7 +758,7 @@ function getActiveTeam() {
   return worm?.team ?? null;
 }
 
-function canApplyInput(sourceTeam = null) {
+function canApplyInput(sourceTeam: string | null = null) {
   const activeTeam = getActiveTeam();
   if (!activeTeam) return false;
   if (!net.enabled) return true;
@@ -810,12 +767,12 @@ function canApplyInput(sourceTeam = null) {
   return false;
 }
 
-function sendNet(msg) {
+function sendNet(msg: any) {
   if (!net.enabled || !net.connected || !net.ws) return;
   net.ws.send(JSON.stringify(msg));
 }
 
-function handleNetMessage(msg) {
+function handleNetMessage(msg: any) {
   if (!msg || typeof msg.type !== "string") return;
   if (msg.type === "welcome") {
     net.playerId = msg.id;
@@ -856,7 +813,7 @@ function handleNetMessage(msg) {
   }
 }
 
-function applyState(snapshot) {
+function applyState(snapshot: any) {
   if (!snapshot) return;
   if (net.enabled) {
     const now = performance.now();
@@ -871,7 +828,7 @@ function applyState(snapshot) {
   applySnapshotToState(snapshot);
 }
 
-function applySnapshotToState(snapshot) {
+function applySnapshotToState(snapshot: any) {
   state.width = snapshot.width;
   state.height = snapshot.height;
   state.seed = snapshot.seed ?? state.seed;
@@ -1014,9 +971,9 @@ function planAIMove(worm) {
   return bestX;
 }
 
-function updateAI(dt) {
+function updateAI(dt: number) {
   if (!aiConfig.enabled || state.gameOver || state.projectiles.length > 0 || state.charging) return;
-  const worm = state.worms[state.currentIndex];
+  const worm: Worm = state.worms[state.currentIndex];
   if (!worm || !worm.alive || worm.team !== aiConfig.team) return;
 
   if (!state.aiPlan) {
@@ -1079,7 +1036,7 @@ function updateAI(dt) {
   }
 }
 
-function planShot(worm) {
+function planShot(worm: Worm) {
   const targets = state.worms.filter((w) => w.alive && w.team !== worm.team);
   if (targets.length === 0) {
     return { angle: worm.team === "Rojo" ? 60 : 120, power: 0.6, weaponIndex: 0 };
@@ -1113,7 +1070,7 @@ function planShot(worm) {
   return best;
 }
 
-function simulateShot(startX, startY, angle, power, weapon, targets) {
+function simulateShot(startX: number, startY: number, angle: number, power: number, weapon: Weapon, targets: Worm[]) {
   const rad = (angle * Math.PI) / 180;
   const speed = weapon.minSpeed + (weapon.maxSpeed - weapon.minSpeed) * power;
   let x = startX + Math.cos(rad) * (config.wormRadius + 6);
@@ -1182,14 +1139,14 @@ function nextTurn() {
   sayComment("turn", { name: worm.name });
 }
 
-function getMoveBounds(team) {
+function getMoveBounds(team: string) {
   const half = state.width * 0.5;
   if (team === "Rojo") return { min: config.wormRadius, max: half };
   if (team === "Azul") return { min: half, max: state.width - config.wormRadius };
   return { min: config.wormRadius, max: state.width - config.wormRadius };
 }
 
-function wouldCollideWithWorm(worm, newX) {
+function wouldCollideWithWorm(worm: Worm, newX: number) {
   for (const other of state.worms) {
     if (other === worm || !other.alive) continue;
     if (Math.abs(newX - other.x) < config.minWormDistance) return true;
@@ -1197,7 +1154,7 @@ function wouldCollideWithWorm(worm, newX) {
   return false;
 }
 
-function updateWorm(worm, dt, isActive) {
+function updateWormClient(worm: Worm, dt: number, isActive: boolean) {
   if (!worm.alive) return;
 
   if (isActive && state.projectiles.length === 0) {
@@ -1247,11 +1204,11 @@ function updateWorm(worm, dt, isActive) {
   }
 }
 
-function addProjectile(params) {
+function addProjectile(params: any) {
   state.projectiles.push(params);
 }
 
-function fireProjectile(worm, power, weapon) {
+function fireProjectile(worm: Worm, power: number, weapon: Weapon) {
   const burst = weapon.burst ?? 1;
   const spread = weapon.burstSpread ?? 0;
   const jitter = weapon.burstSpeedJitter ?? 0;
@@ -1287,7 +1244,7 @@ function fireProjectile(worm, power, weapon) {
   }
 }
 
-function updateProjectiles(dt) {
+function updateProjectiles(dt: number) {
   if (state.projectiles.length === 0) return;
   const next = [];
 
@@ -1330,7 +1287,7 @@ function updateProjectiles(dt) {
   }
 }
 
-function explode(x, y, radius, maxDamage) {
+function explode(x: number, y: number, radius: number, maxDamage: number) {
   carveCrater(x, y, radius);
   spawnExplosion(x, y, radius);
 
@@ -1369,7 +1326,7 @@ function explode(x, y, radius, maxDamage) {
   }
 }
 
-function carveCrater(cx, cy, radius) {
+function carveCrater(cx: number, cy: number, radius: number) {
   const start = Math.floor(clamp(cx - radius, 0, state.width));
   const end = Math.floor(clamp(cx + radius, 0, state.width));
   for (let x = start; x <= end; x += 1) {
@@ -1382,7 +1339,7 @@ function carveCrater(cx, cy, radius) {
   }
 }
 
-function spawnExplosion(x, y, radius) {
+function spawnExplosion(x: number, y: number, radius: number) {
   const particles = [];
   const count = 20;
   for (let i = 0; i < count; i += 1) {
@@ -1409,7 +1366,7 @@ function spawnExplosion(x, y, radius) {
   });
 }
 
-function updateExplosions(dt) {
+function updateExplosions(dt: number) {
   if (state.explosions.length === 0) return;
   state.explosions = state.explosions.filter((boom) => {
     boom.life += dt;
@@ -3127,7 +3084,7 @@ function render() {
   }
 }
 
-function updateCharge(dt) {
+function updateCharge(dt: number) {
   if (!state.charging) return;
   state.charge += config.chargeRate * dt * state.chargeDir;
   if (state.charge >= 1) {
@@ -3141,7 +3098,7 @@ function updateCharge(dt) {
   updateHud();
 }
 
-function step(dt) {
+function step(dt: number) {
   const cdt = Math.min(0.033, dt);
   if (commentaryState.timer > 0) commentaryState.timer -= cdt;
   if (commentaryState.popTimer > 0) commentaryState.popTimer -= cdt;
@@ -3156,7 +3113,7 @@ function step(dt) {
     updateAI(safeDt);
     state.worms.forEach((worm, index) => {
       const isActive = index === state.currentIndex && worm.alive;
-      updateWorm(worm, safeDt, isActive);
+      updateWormClient(worm, safeDt, isActive);
     });
     updateProjectiles(safeDt);
     updateExplosions(safeDt);
@@ -3187,7 +3144,7 @@ function step(dt) {
   }
 }
 
-function handleKeyDown(event, sourceTeam = null) {
+function handleKeyDown(event: any, sourceTeam: string | null = null) {
   if (!canApplyInput(sourceTeam)) return false;
   if (event.code === "Space") {
     if (!state.charging && state.projectiles.length === 0 && !state.gameOver) {
@@ -3225,7 +3182,7 @@ function handleKeyDown(event, sourceTeam = null) {
   return true;
 }
 
-function handleKeyUp(event, sourceTeam = null) {
+function handleKeyUp(event: any, sourceTeam: string | null = null) {
   if (!canApplyInput(sourceTeam)) return false;
   if (event.code === "Space") {
     if (state.charging && state.projectiles.length === 0 && !state.gameOver) {
@@ -3244,7 +3201,7 @@ function handleKeyUp(event, sourceTeam = null) {
   return true;
 }
 
-function handleCanvasClick(event) {
+function handleCanvasClick(event: MouseEvent) {
   if (!canvas || !state.width || !state.height) return;
   const rect = canvas.getBoundingClientRect();
   const scaleX = state.width / rect.width;
@@ -3266,7 +3223,7 @@ function handleCanvasClick(event) {
   }
 }
 
-function bindInput(phaserScene) {
+function bindInput(phaserScene: any) {
   canvas.addEventListener("click", handleCanvasClick);
 
   phaserScene.input.keyboard.on("keydown", (event) => {
