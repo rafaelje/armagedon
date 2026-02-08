@@ -34,7 +34,8 @@ async function handler(req: Request): Promise<Response> {
     const filePath = "." + pathName;
     const file = await Deno.readFile(filePath);
     const contentType = getContentType(pathName);
-    return new Response(file, { headers: { "content-type": contentType } });
+    // Use 'as any' to avoid type mismatch between Deno and Node/Jest Response bodies
+    return new Response(file as any, { headers: { "content-type": contentType } });
   } catch {
     return new Response("Not Found", { status: 404 });
   }
