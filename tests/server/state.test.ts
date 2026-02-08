@@ -1,4 +1,4 @@
-import { state, clients, pressed, getNextClientId } from "../../src/server/state.mjs";
+import { state, clients, pressed, getNextClientId } from "../../src/server/state.ts";
 
 describe("State", () => {
   it("should initialize state object correctly", () => {

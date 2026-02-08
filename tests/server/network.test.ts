@@ -8,28 +8,28 @@ const mockHandleKeyUp = jest.fn();
 const mockGetActiveTeam = jest.fn();
 const mockPressed = new Set();
 
-jest.unstable_mockModule('../../src/server/state.mjs', () => ({
+jest.unstable_mockModule('../../src/server/state.ts', () => ({
   clients: mockClients,
   pressed: mockPressed,
   state: { seed: 123 },
   getNextClientId: () => 1
 }));
 
-jest.unstable_mockModule('../../src/server/broadcaster.mjs', () => ({
+jest.unstable_mockModule('../../src/server/broadcaster.ts', () => ({
   broadcast: mockBroadcast
 }));
 
-jest.unstable_mockModule('../../src/server/game-logic.mjs', () => ({
+jest.unstable_mockModule('../../src/server/game-logic.ts', () => ({
   resetGame: mockResetGame,
   handleKeyDown: mockHandleKeyDown,
   handleKeyUp: mockHandleKeyUp,
   getActiveTeam: mockGetActiveTeam
 }));
 
-const { handleSocket } = await import('../../src/server/network.mjs');
+const { handleSocket } = (await import('../../src/server/network.ts')) as any;
 
 describe("Network", () => {
-  let socket;
+  let socket: any;
 
   beforeEach(() => {
     mockClients.clear();
@@ -43,7 +43,11 @@ describe("Network", () => {
     socket = {
       send: jest.fn(),
       close: jest.fn(),
-      readyState: 1
+      readyState: 1,
+      onopen: null,
+      onmessage: null,
+      onclose: null,
+      onerror: null
     };
   });
 

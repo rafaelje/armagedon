@@ -1,6 +1,6 @@
-import { clamp, createRng, seededRand } from "../game.mjs";
+import { clamp, createRng, seededRand } from "../game.ts";
 
-function flattenRange(terrain, x0, x1, y, width) {
+function flattenRange(terrain: number[], x0: number, x1: number, y: number, width: number) {
   const start = Math.floor(clamp(x0, 0, width));
   const end = Math.floor(clamp(x1, 0, width));
   for (let x = start; x <= end; x += 1) {
@@ -8,7 +8,7 @@ function flattenRange(terrain, x0, x1, y, width) {
   }
 }
 
-function smoothTerrain(terrain, passes) {
+function smoothTerrain(terrain: number[], passes: number) {
   for (let p = 0; p < passes; p++) {
     const copy = [...terrain];
     for (let x = 1; x < terrain.length - 1; x++) {
@@ -17,7 +17,7 @@ function smoothTerrain(terrain, passes) {
   }
 }
 
-function avgTerrainHeight(terrain, x0, x1, defaultHeight) {
+function avgTerrainHeight(terrain: number[], x0: number, x1: number, defaultHeight: number) {
   let sum = 0;
   let count = 0;
   for (let x = x0; x <= x1; x++) {
@@ -27,7 +27,7 @@ function avgTerrainHeight(terrain, x0, x1, defaultHeight) {
   return count > 0 ? sum / count : defaultHeight * 0.6;
 }
 
-function generateMapName(rng) {
+function generateMapName(rng: () => number) {
   const adj = [
     "Salvaje", "Árido", "Olvidado", "Caótico", "Maldito",
     "Perdido", "Bravo", "Oscuro", "Lejano", "Helado",
@@ -41,7 +41,7 @@ function generateMapName(rng) {
   return `${noun[Math.floor(rng() * noun.length)]} ${adj[Math.floor(rng() * adj.length)]}`;
 }
 
-function buildTerrain(width, height, seed) {
+function buildTerrain(width: number, height: number, seed: number) {
   const w = width;
   const h = height;
   const rng = createRng(seed || 1);
@@ -50,7 +50,7 @@ function buildTerrain(width, height, seed) {
   const base = seededRand(rng, h * 0.58, h * 0.75);
 
   const numWaves = Math.floor(seededRand(rng, 2, 6));
-  const waves = [];
+  const waves: { freq: number; amp: number; phase: number }[] = [];
   for (let i = 0; i < numWaves; i++) {
     waves.push({
       freq: seededRand(rng, 0.004, 0.045),
