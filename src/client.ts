@@ -3,7 +3,8 @@ import {
   clamp, getAimBounds, createRng, seededRand,
   Weapon, config, weapons
 } from "./game.ts";
-import type { Worm, Projectile, GameState as NetGameState } from "./types.ts";
+import type { Worm, Projectile, GameState as NetGameState, LevelData, Point } from "./types.ts";
+import defaultLevel from "./levels/tropical_island.ts";
 
 let canvas: HTMLCanvasElement | null = null;
 let ctx: CanvasRenderingContext2D | null = null;
@@ -438,7 +439,45 @@ function terrainHeightAt(x: number) {
   return state.terrain[xi] ?? state.height;
 }
 
+function getYOnPolygon(x: number, points: Point[]): number | null {
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    if (x >= Math.min(p1.x, p2.x) && x <= Math.max(p1.x, p2.x)) {
+      if (Math.abs(p2.x - p1.x) < 0.001) return p1.y;
+      const t = (x - p1.x) / (p2.x - p1.x);
+      return p1.y + t * (p2.y - p1.y);
+    }
+  }
+  return null;
+}
+
+function buildTerrainFromLevel(level: LevelData) {
+  const w = state.width;
+  const h = state.height;
+  state.terrain = new Array(Math.floor(w) + 1);
+
+  for (let x = 0; x <= w; x++) {
+    const realX = (x / w) * level.worldBounds.width;
+    let y = level.waterLevel;
+
+    const leftY = getYOnPolygon(realX, level.platformLeft.terrain);
+    const rightY = getYOnPolygon(realX, level.platformRight.terrain);
+
+    if (leftY !== null) y = leftY;
+    if (rightY !== null) y = rightY;
+
+    // Convert back to current screen scale
+    state.terrain[x] = (y / level.worldBounds.height) * h;
+  }
+}
+
 function buildTerrainLocal() {
+  if (defaultLevel) {
+    buildTerrainFromLevel(defaultLevel);
+    state.mapName = defaultLevel.name;
+    return;
+  }
   const w = state.width;
   const h = state.height;
   const rng = createRng(state.seed || 1);
@@ -565,29 +604,56 @@ function flattenRange(x0: number, x1: number, y: number) {
 }
 
 function createWormsLocal() {
-  const left = [state.width * 0.2, state.width * 0.3];
-  const right = [state.width * 0.7, state.width * 0.82];
   const worms = [];
+  if (defaultLevel) {
+    const w = state.width;
+    const h = state.height;
+    const lw = defaultLevel.worldBounds.width;
+    const lh = defaultLevel.worldBounds.height;
 
-  left.forEach((x, index) => {
-    worms.push(makeWormLocal({
-      id: `R${index + 1}`,
-      name: `Rojo ${index + 1}`,
-      team: "Rojo",
-      color: "#ef476f",
-      x,
-    }));
-  });
+    defaultLevel.platformLeft.spawnPoints.forEach((p, index) => {
+      worms.push(makeWormLocal({
+        id: `R${index + 1}`,
+        name: `Rojo ${index + 1}`,
+        team: "Rojo",
+        color: "#ef476f",
+        x: (p.x / lw) * w,
+      }));
+    });
 
-  right.forEach((x, index) => {
-    worms.push(makeWormLocal({
-      id: `A${index + 1}`,
-      name: `Azul ${index + 1}`,
-      team: "Azul",
-      color: "#118ab2",
-      x,
-    }));
-  });
+    defaultLevel.platformRight.spawnPoints.forEach((p, index) => {
+      worms.push(makeWormLocal({
+        id: `A${index + 1}`,
+        name: `Azul ${index + 1}`,
+        team: "Azul",
+        color: "#118ab2",
+        x: (p.x / lw) * w,
+      }));
+    });
+  } else {
+    const left = [state.width * 0.2, state.width * 0.3];
+    const right = [state.width * 0.7, state.width * 0.82];
+
+    left.forEach((x, index) => {
+      worms.push(makeWormLocal({
+        id: `R${index + 1}`,
+        name: `Rojo ${index + 1}`,
+        team: "Rojo",
+        color: "#ef476f",
+        x,
+      }));
+    });
+
+    right.forEach((x, index) => {
+      worms.push(makeWormLocal({
+        id: `A${index + 1}`,
+        name: `Azul ${index + 1}`,
+        team: "Azul",
+        color: "#118ab2",
+        x,
+      }));
+    });
+  }
 
   state.worms = worms;
   state.currentIndex = 0;
@@ -3143,6 +3209,40 @@ function drawTouchControls() {
   ctx.restore();
 }
 
+function drawDecorations() {
+  if (!defaultLevel) return;
+  const w = state.width;
+  const h = state.height;
+  const lw = defaultLevel.worldBounds.width;
+  const lh = defaultLevel.worldBounds.height;
+
+  ctx.save();
+  for (const deco of defaultLevel.decorations) {
+    const dx = (deco.x / lw) * w;
+    const dy = terrainHeightAt(dx);
+
+    if (deco.type === "palm_tree") {
+      ctx.fillStyle = "#8B4513";
+      ctx.fillRect(dx - 2, dy - 30, 4, 30);
+      ctx.fillStyle = "#228B22";
+      ctx.beginPath();
+      ctx.arc(dx, dy - 30, 15, 0, Math.PI, true);
+      ctx.fill();
+    } else if (deco.type === "rock") {
+      ctx.fillStyle = "#808080";
+      ctx.beginPath();
+      ctx.arc(dx, dy - 5, 10, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (deco.type === "shell") {
+      ctx.fillStyle = "#FFF5EE";
+      ctx.beginPath();
+      ctx.ellipse(dx, dy - 2, 5, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 function drawHud() {
   drawTeamBanners();
   drawTurnTimer();
@@ -3166,6 +3266,7 @@ function render() {
   drawClouds();
   drawWindGusts();
   drawTerrain();
+  drawDecorations();
   drawTrajectory();
   state.worms.forEach((worm, index) => drawWorm(worm, index === state.currentIndex));
   drawProjectiles();

@@ -32,6 +32,45 @@ export interface Projectile {
   alive: boolean;
 }
 
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface Hideout {
+  type: "cave" | "overhang" | "trench";
+  bounds: { x: number; y: number; width: number; height: number };
+  sealed: boolean;
+}
+
+export interface LevelData {
+  name: string;
+  theme: string;
+  waterLevel: number;
+  worldBounds: { width: number; height: number };
+  platformLeft: {
+    terrain: Point[];
+    hideouts: Hideout[];
+    spawnPoints: Point[];
+  };
+  platformRight: {
+    terrain: Point[];
+    hideouts: Hideout[];
+    spawnPoints: Point[];
+  };
+  gap: {
+    startX: number;
+    endX: number;
+    floatingDebris?: { x: number; y: number; width: number; height: number }[];
+  };
+  decorations: { type: string; x: number; y: number }[];
+  background: {
+    skyColor: string;
+    waterColor: string;
+    waterSurfaceColor: string;
+  };
+}
+
 export interface GameState {
   width: number;
   height: number;
@@ -50,4 +89,5 @@ export interface GameState {
   turnTimer: number;
   turnTimerMax: number;
   mapName?: string;
+  levelData?: LevelData;
 }

@@ -4,31 +4,91 @@ import { buildTerrain } from "./terrain.ts";
 import { updateProjectiles, fireProjectile } from "./physics.ts";
 import { makeWorm, updateWorm } from "../game.ts";
 import type { Worm } from "../game.ts";
+import type { LevelData, Point } from "../types.ts";
+import defaultLevel from "../levels/tropical_island.ts";
+
+function getYOnPolygon(x: number, points: Point[]): number | null {
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    if (x >= Math.min(p1.x, p2.x) && x <= Math.max(p1.x, p2.x)) {
+      if (Math.abs(p2.x - p1.x) < 0.001) return p1.y;
+      const t = (x - p1.x) / (p2.x - p1.x);
+      return p1.y + t * (p2.y - p1.y);
+    }
+  }
+  return null;
+}
+
+function buildTerrainFromLevel(level: LevelData) {
+  const w = state.width;
+  const h = state.height;
+  state.terrain = new Array(Math.floor(w) + 1);
+
+  for (let x = 0; x <= w; x++) {
+    const realX = (x / w) * level.worldBounds.width;
+    let y = level.waterLevel;
+
+    const leftY = getYOnPolygon(realX, level.platformLeft.terrain);
+    const rightY = getYOnPolygon(realX, level.platformRight.terrain);
+
+    if (leftY !== null) y = leftY;
+    if (rightY !== null) y = rightY;
+
+    state.terrain[x] = (y / level.worldBounds.height) * h;
+  }
+}
 
 function createWorms() {
-  const left = [state.width * 0.2, state.width * 0.3];
-  const right = [state.width * 0.7, state.width * 0.82];
   const worms: Worm[] = [];
 
-  left.forEach((x, index) => {
-    worms.push(makeWorm({
-      id: `R${index + 1}`,
-      name: `Rojo ${index + 1}`,
-      team: "Rojo",
-      color: "#ef476f",
-      x,
-    }, state.terrain, state.width, state.height));
-  });
+  if (defaultLevel) {
+    const w = state.width;
+    const lw = defaultLevel.worldBounds.width;
 
-  right.forEach((x, index) => {
-    worms.push(makeWorm({
-      id: `A${index + 1}`,
-      name: `Azul ${index + 1}`,
-      team: "Azul",
-      color: "#118ab2",
-      x,
-    }, state.terrain, state.width, state.height));
-  });
+    defaultLevel.platformLeft.spawnPoints.forEach((p, index) => {
+      worms.push(makeWorm({
+        id: `R${index + 1}`,
+        name: `Rojo ${index + 1}`,
+        team: "Rojo",
+        color: "#ef476f",
+        x: (p.x / lw) * w,
+      }, state.terrain, state.width, state.height));
+    });
+
+    defaultLevel.platformRight.spawnPoints.forEach((p, index) => {
+      worms.push(makeWorm({
+        id: `A${index + 1}`,
+        name: `Azul ${index + 1}`,
+        team: "Azul",
+        color: "#118ab2",
+        x: (p.x / lw) * w,
+      }, state.terrain, state.width, state.height));
+    });
+  } else {
+    const left = [state.width * 0.2, state.width * 0.3];
+    const right = [state.width * 0.7, state.width * 0.82];
+
+    left.forEach((x, index) => {
+      worms.push(makeWorm({
+        id: `R${index + 1}`,
+        name: `Rojo ${index + 1}`,
+        team: "Rojo",
+        color: "#ef476f",
+        x,
+      }, state.terrain, state.width, state.height));
+    });
+
+    right.forEach((x, index) => {
+      worms.push(makeWorm({
+        id: `A${index + 1}`,
+        name: `Azul ${index + 1}`,
+        team: "Azul",
+        color: "#118ab2",
+        x,
+      }, state.terrain, state.width, state.height));
+    });
+  }
 
   state.worms = worms;
   state.currentIndex = 0;
@@ -47,9 +107,14 @@ function resetGame(seedOverride?: number) {
   state.turnTimer = state.turnTimerMax;
   state.wind = Math.floor(Math.random() * 11) - 5;
 
-  const { terrain, mapName } = buildTerrain(state.width, state.height, state.seed);
-  state.terrain = terrain;
-  state.mapName = mapName;
+  if (defaultLevel) {
+    buildTerrainFromLevel(defaultLevel);
+    state.mapName = defaultLevel.name;
+  } else {
+    const { terrain, mapName } = buildTerrain(state.width, state.height, state.seed);
+    state.terrain = terrain;
+    state.mapName = mapName;
+  }
 
   createWorms();
 }
