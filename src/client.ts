@@ -1,7 +1,7 @@
 /// <reference types="phaser" />
 import {
   clamp, getAimBounds, createRng, seededRand,
-  Weapon, config, weapons, isSolid, getGroundAt
+  Weapon, config, weapons, isSolid, getGroundAt, updateWorm
 } from "./game.ts";
 import type { Worm, Projectile, GameState as NetGameState, LevelData, Point, Circle } from "./types.ts";
 import defaultLevel from "./levels/tropical_island.ts";

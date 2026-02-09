@@ -78,6 +78,15 @@ var weapons = [
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
+function getAimBounds(team) {
+  if (team === "Rojo") {
+    return { min: -15, max: 165 };
+  }
+  if (team === "Azul") {
+    return { min: 15, max: 195 };
+  }
+  return { min: 15, max: 165 };
+}
 function isSolid(x, y, terrain, holes, width, height) {
   if (x < 0 || x >= width || y < 0 || y >= height)
     return false;
@@ -115,6 +124,51 @@ function getGroundAt(x, y, terrain, holes, width, height) {
       return cy;
   }
   return height;
+}
+function updateWorm(worm, dt, canMove, pressed, terrain, width, height, holes = []) {
+  if (!worm.alive)
+    return;
+  if (canMove) {
+    const left = pressed.has("ArrowLeft");
+    const right = pressed.has("ArrowRight");
+    const up = pressed.has("ArrowUp");
+    const down = pressed.has("ArrowDown");
+    if (left !== right) {
+      const dir = left ? -1 : 1;
+      const nextX = clamp(worm.x + dir * config.moveSpeed * dt, config.wormRadius, width - config.wormRadius);
+      const currentGround = getGroundAt(worm.x, worm.y + config.wormRadius - 2, terrain, holes, width, height);
+      const nextGround = getGroundAt(nextX, worm.y + config.wormRadius - 10, terrain, holes, width, height);
+      if (nextGround - currentGround < 15) {
+        worm.x = nextX;
+      }
+    }
+    if (up !== down) {
+      const dir = up ? 1 : -1;
+      worm.angle += dir * config.angleSpeed * dt;
+      const bounds = getAimBounds(worm.team);
+      worm.angle = clamp(worm.angle, bounds.min, bounds.max);
+    }
+  }
+  if (!worm.onGround || Math.abs(worm.vx) > 1) {
+    worm.x += worm.vx * dt;
+    worm.x = clamp(worm.x, config.wormRadius, width - config.wormRadius);
+    worm.vx *= worm.onGround ? 0.8 : 0.99;
+  }
+  const groundY = getGroundAt(worm.x, worm.y + config.wormRadius - 2, terrain, holes, width, height);
+  const footY = worm.y + config.wormRadius;
+  if (footY < groundY - 1) {
+    worm.onGround = false;
+  }
+  if (!worm.onGround) {
+    worm.vy += config.gravity * dt;
+    worm.y += worm.vy * dt;
+  }
+  const finalGroundY = getGroundAt(worm.x, worm.y, terrain, holes, width, height);
+  if (worm.y + config.wormRadius >= finalGroundY) {
+    worm.y = finalGroundY - config.wormRadius;
+    worm.vy = 0;
+    worm.onGround = true;
+  }
 }
 
 // src/levels/tropical_island.ts
