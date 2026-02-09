@@ -104,10 +104,10 @@ function explode(x: number, y: number, radius: number, maxDamage: number, terrai
       return;
     }
 
-    const knock = 260 * falloff;
+    const knock = config.knockbackImpulse * falloff;
     const angle = Math.atan2(dy, dx);
     worm.vx += Math.cos(angle) * knock;
-    worm.vy += Math.sin(angle) * knock - 200 * falloff;
+    worm.vy += Math.sin(angle) * knock - config.verticalBoost * falloff;
     worm.onGround = false;
   });
 }

@@ -5,7 +5,11 @@ var config = {
   angleSpeed: 90,
   wormRadius: 12,
   chargeRate: 0.9,
-  minWormDistance: 30
+  minWormDistance: 30,
+  knockbackImpulse: 364,
+  // 260 * 1.4
+  verticalBoost: 280
+  // 200 * 1.4
 };
 var weapons = [
   {
@@ -1246,10 +1250,10 @@ function explode(x, y, radius, maxDamage, terrainRadius) {
       gotKill = true;
       return;
     }
-    const knock = 260 * falloff;
+    const knock = config.knockbackImpulse * falloff;
     const angle = Math.atan2(dy, dx);
     worm.vx += Math.cos(angle) * knock;
-    worm.vy += Math.sin(angle) * knock - 200 * falloff;
+    worm.vy += Math.sin(angle) * knock - config.verticalBoost * falloff;
     worm.onGround = false;
   });
   if (gotKill) {

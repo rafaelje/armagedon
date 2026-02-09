@@ -8,6 +8,8 @@ export interface GameConfig {
   wormRadius: number;
   chargeRate: number;
   minWormDistance: number;
+  knockbackImpulse: number;
+  verticalBoost: number;
 }
 
 export const config: GameConfig = {
@@ -17,6 +19,8 @@ export const config: GameConfig = {
   wormRadius: 12,
   chargeRate: 0.9,
   minWormDistance: 30,
+  knockbackImpulse: 364, // 260 * 1.4
+  verticalBoost: 280, // 200 * 1.4
 };
 
 export interface Weapon {
