@@ -1,4 +1,6 @@
-const levelData = {
+import { LevelData } from "../types.ts";
+
+const levelData: LevelData = {
   // Metadata
   name: "Isla del Huevo Errante",
   theme: "tropical",
@@ -16,7 +18,8 @@ const levelData = {
       { x: 50, y: 400 },
       { x: 120, y: 350 },
       { x: 200, y: 360 },
-      { x: 280, y: 310 },
+      { x: 250, y: 420 }, // Trench dip
+      { x: 310, y: 420 }, // Trench bottom
       { x: 350, y: 330 },
       { x: 450, y: 260 },
       { x: 550, y: 280 },
@@ -65,7 +68,8 @@ const levelData = {
       { x: 1600, y: 390 },
       { x: 1700, y: 350 },
       { x: 1800, y: 280 },
-      { x: 1950, y: 250 },
+      { x: 1900, y: 380 }, // Trench dip
+      { x: 2000, y: 380 }, // Trench bottom
       { x: 2100, y: 290 },
       { x: 2250, y: 360 },
       { x: 2350, y: 390 },
