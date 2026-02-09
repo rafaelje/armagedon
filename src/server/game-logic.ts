@@ -2,7 +2,7 @@ import { state, pressed } from "./state.ts";
 import { config, weapons } from "./config.ts";
 import { buildTerrain } from "./terrain.ts";
 import { updateProjectiles, fireProjectile } from "./physics.ts";
-import { makeWorm, updateWorm, clamp } from "../game.ts";
+import { makeWorm, updateWormPhysics, clamp } from "../game.ts";
 import type { Worm } from "../game.ts";
 import type { LevelData, Point } from "../types.ts";
 import defaultLevel from "../levels/tropical_island.ts";
@@ -209,7 +209,7 @@ function step(dt: number) {
   if (state.gameOver) return;
   state.worms.forEach((worm, index) => {
     const isActive = index === state.currentIndex && worm.alive;
-    updateWorm(worm, dt, isActive && state.projectiles.length === 0, pressed, state.terrain, state.width, state.height, state.holes);
+    updateWormPhysics(worm, dt, isActive && state.projectiles.length === 0, pressed, state.terrain, state.width, state.height, state.holes);
   });
 
   const wasProjectilesEmpty = state.projectiles.length === 0;

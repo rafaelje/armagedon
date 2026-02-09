@@ -5,7 +5,7 @@ import {
   seededRand,
   terrainHeightAt,
   makeWorm,
-  updateWorm,
+  updateWormPhysics,
   config,
   Worm
 } from "../src/game.ts";
@@ -98,7 +98,7 @@ describe("Game Logic", () => {
          pressed.add("ArrowLeft");
          const dt = 0.1;
          const initialX = worm.x;
-         updateWorm(worm, dt, true, pressed, terrain, width, height);
+         updateWormPhysics(worm, dt, true, pressed, terrain, width, height);
          expect(worm.x).toBeLessThan(initialX);
          expect(worm.x).toBeCloseTo(initialX - config.moveSpeed * dt);
      });
@@ -108,7 +108,7 @@ describe("Game Logic", () => {
          const dt = 0.1;
          const initialVy = worm.vy;
          const initialY = worm.y;
-         updateWorm(worm, dt, true, pressed, terrain, width, height);
+         updateWormPhysics(worm, dt, true, pressed, terrain, width, height);
          expect(worm.vy).toBeGreaterThan(initialVy); // Gravity increases vy (downward)
          expect(worm.y).toBeGreaterThan(initialY); // y increases (downward)
      });
@@ -119,7 +119,7 @@ describe("Game Logic", () => {
          worm.y = 480;
          worm.vy = 200;
          const dt = 0.5; // Will move past 488
-         updateWorm(worm, dt, true, pressed, terrain, width, height);
+         updateWormPhysics(worm, dt, true, pressed, terrain, width, height);
 
          expect(worm.onGround).toBe(true);
          expect(worm.y).toBe(488);

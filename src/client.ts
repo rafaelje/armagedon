@@ -1,7 +1,7 @@
 /// <reference types="phaser" />
 import {
   clamp, getAimBounds, createRng, seededRand,
-  Weapon, config, weapons, isSolid, getGroundAt, updateWorm
+  Weapon, config, weapons, isSolid, getGroundAt, updateWormPhysics
 } from "./game.ts";
 import type { Worm, Projectile, GameState as NetGameState, LevelData, Point, Circle } from "./types.ts";
 import defaultLevel from "./levels/tropical_island.ts";
@@ -1325,7 +1325,7 @@ function wouldCollideWithWorm(worm: Worm, newX: number) {
 }
 
 function updateWormClient(worm: Worm, dt: number, isActive: boolean) {
-  updateWorm(worm, dt, isActive, keys, state.terrain, state.width, state.height, state.holes);
+  updateWormPhysics(worm, dt, isActive, keys, state.terrain, state.width, state.height, state.holes);
 }
 
 function addProjectile(params: Projectile) {

@@ -125,7 +125,7 @@ function getGroundAt(x, y, terrain, holes, width, height) {
   }
   return height;
 }
-function updateWorm(worm, dt, canMove, pressed, terrain, width, height, holes = []) {
+function updateWormPhysics(worm, dt, canMove, pressed, terrain, width, height, holes = []) {
   if (!worm.alive)
     return;
   if (canMove) {
@@ -1401,7 +1401,7 @@ function wouldCollideWithWorm(worm, newX) {
   return false;
 }
 function updateWormClient(worm, dt, isActive) {
-  updateWorm(worm, dt, isActive, keys, state.terrain, state.width, state.height, state.holes);
+  updateWormPhysics(worm, dt, isActive, keys, state.terrain, state.width, state.height, state.holes);
 }
 function addProjectile(params) {
   state.projectiles.push(params);

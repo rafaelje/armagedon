@@ -207,7 +207,7 @@ export function makeWorm(
   };
 }
 
-export function updateWorm(
+export function updateWormPhysics(
   worm: Worm,
   dt: number,
   canMove: boolean,
