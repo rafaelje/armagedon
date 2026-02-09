@@ -1,9 +1,9 @@
 /// <reference types="phaser" />
 import {
   clamp, getAimBounds, createRng, seededRand,
-  Weapon, config, weapons
+  Weapon, config, weapons, isSolid, getGroundAt
 } from "./game.ts";
-import type { Worm, Projectile, GameState as NetGameState, LevelData, Point } from "./types.ts";
+import type { Worm, Projectile, GameState as NetGameState, LevelData, Point, Circle } from "./types.ts";
 import defaultLevel from "./levels/tropical_island.ts";
 
 let canvas: HTMLCanvasElement | null = null;
@@ -122,6 +122,7 @@ interface GameState {
   width: number;
   height: number;
   terrain: number[];
+  holes: Circle[];
   worms: Worm[];
   currentIndex: number;
   weaponIndex: number;
@@ -159,6 +160,7 @@ const state: GameState = {
   width: 0,
   height: 0,
   terrain: [],
+  holes: [],
   worms: [],
   currentIndex: 0,
   weaponIndex: 0,
@@ -434,9 +436,8 @@ function buildSoilPattern() {
   visuals.soilPattern = ctx.createPattern(texture, "repeat");
 }
 
-function terrainHeightAt(x: number) {
-  const xi = Math.floor(clamp(x, 0, state.width - 1));
-  return state.terrain[xi] ?? state.height;
+function terrainHeightAt(x: number, y: number = 0) {
+  return getGroundAt(x, y, state.terrain, state.holes, state.width, state.height);
 }
 
 function getYOnPolygon(x: number, points: Point[]): number | null {
@@ -456,6 +457,7 @@ function buildTerrainFromLevel(level: LevelData) {
   const w = state.width;
   const h = state.height;
   state.terrain = new Array(Math.floor(w) + 1);
+  state.holes = [];
 
   for (let x = 0; x <= w; x++) {
     const realX = (x / w) * level.worldBounds.width;
@@ -482,6 +484,7 @@ function buildTerrainLocal() {
   const h = state.height;
   const rng = createRng(state.seed || 1);
   state.terrain = new Array(Math.floor(w) + 1);
+  state.holes = [];
 
   // --- Random base height ---
   const base = seededRand(rng, h * 0.58, h * 0.75);
@@ -660,7 +663,7 @@ function createWormsLocal() {
 }
 
 function makeWormLocal({ id, name, team, color, x }: { id: string, name: string, team: string, color: string, x: number }): Worm {
-  const y = terrainHeightAt(x) - config.wormRadius;
+  const y = terrainHeightAt(x, 0) - config.wormRadius;
   return {
     id,
     name,
@@ -999,6 +1002,9 @@ function applySnapshotToState(snapshot: any) {
   if (snapshot.terrain) {
     state.terrain = snapshot.terrain;
   }
+  if (snapshot.holes) {
+    state.holes = snapshot.holes;
+  }
   if (snapshot.worms) {
     state.worms = snapshot.worms.map((worm) => ({ ...worm }));
   }
@@ -1122,7 +1128,7 @@ function planAIMove(worm: Worm) {
 
   for (const cx of candidates) {
     if (wouldCollideWithWorm(worm, cx)) continue;
-    const cy = terrainHeightAt(cx) - config.wormRadius;
+    const cy = terrainHeightAt(cx, 0) - config.wormRadius;
     const shotScore = evaluateShotFromPosition(cx, cy, targets);
     const heightBonus = (cy / state.height) * 5;
     const total = shotScore + heightBonus;
@@ -1260,7 +1266,7 @@ function simulateShot(startX: number, startY: number, angle: number, power: numb
       if (dist < minDist) minDist = dist;
     }
 
-    const hitTerrain = y >= terrainHeightAt(x);
+    const hitTerrain = isSolid(x, y, state.terrain, state.holes, state.width, state.height);
     const hitDirect = minDist <= config.wormRadius + 6;
     if (hitTerrain || hitDirect) break;
   }
@@ -1319,53 +1325,7 @@ function wouldCollideWithWorm(worm: Worm, newX: number) {
 }
 
 function updateWormClient(worm: Worm, dt: number, isActive: boolean) {
-  if (!worm.alive) return;
-
-  if (isActive && state.projectiles.length === 0) {
-    const left = keys.has("ArrowLeft");
-    const right = keys.has("ArrowRight");
-    const up = keys.has("ArrowUp");
-    const down = keys.has("ArrowDown");
-
-    if (left !== right) {
-      const dir = left ? -1 : 1;
-      const bounds = getMoveBounds(worm.team);
-      const newX = clamp(worm.x + dir * config.moveSpeed * dt, bounds.min, bounds.max);
-      if (!wouldCollideWithWorm(worm, newX)) {
-        worm.x = newX;
-      }
-    }
-
-    if (up !== down) {
-      const dir = up ? 1 : -1;
-      worm.angle += dir * config.angleSpeed * dt;
-      const bounds = getAimBounds(worm.team);
-      worm.angle = clamp(worm.angle, bounds.min, bounds.max);
-    }
-  }
-
-  if (!worm.onGround || Math.abs(worm.vx) > 1) {
-    worm.x += worm.vx * dt;
-    worm.x = clamp(worm.x, config.wormRadius, state.width - config.wormRadius);
-    worm.vx *= worm.onGround ? 0.8 : 0.99;
-  }
-
-  const ground = terrainHeightAt(worm.x) - config.wormRadius;
-  if (worm.y < ground - 1) {
-    worm.onGround = false;
-  }
-
-  if (!worm.onGround) {
-    worm.vy += config.gravity * dt;
-    worm.y += worm.vy * dt;
-  }
-
-  const groundY = terrainHeightAt(worm.x) - config.wormRadius;
-  if (worm.y >= groundY) {
-    worm.y = groundY;
-    worm.vy = 0;
-    worm.onGround = true;
-  }
+  updateWorm(worm, dt, isActive, keys, state.terrain, state.width, state.height, state.holes);
 }
 
 function addProjectile(params: Projectile) {
@@ -1432,9 +1392,9 @@ function updateProjectiles(dt: number) {
       return;
     }
 
-    if (p.y >= terrainHeightAt(p.x)) {
+    if (isSolid(p.x, p.y, state.terrain, state.holes, state.width, state.height)) {
       if (p.bounciness > 0 && p.bounces < 3 && p.timer > 0.05) {
-        p.y = terrainHeightAt(p.x) - 2;
+        p.y = terrainHeightAt(p.x, p.y - 10) - 2;
         p.vy = -Math.abs(p.vy) * p.bounciness;
         p.vx *= (p.friction ?? 0.8);
         p.bounces += 1;
@@ -1494,14 +1454,16 @@ function explode(x: number, y: number, radius: number, maxDamage: number, terrai
 }
 
 function carveCrater(cx: number, cy: number, radius: number) {
+  state.holes.push({ x: cx, y: cy, r: radius });
   const start = Math.floor(clamp(cx - radius, 0, state.width));
   const end = Math.floor(clamp(cx + radius, 0, state.width));
   for (let x = start; x <= end; x += 1) {
     const dx = x - cx;
     const span = Math.sqrt(Math.max(0, radius * radius - dx * dx));
-    const craterY = cy + span;
-    if (state.terrain[x] < craterY) {
-      state.terrain[x] = craterY;
+    const topY = cy - span;
+    const bottomY = cy + span;
+    if (topY <= state.terrain[x] + 4) {
+      state.terrain[x] = Math.max(state.terrain[x], bottomY);
     }
   }
 }
@@ -1565,6 +1527,16 @@ function drawTerrain() {
   ctx.save();
   ctx.fillStyle = "#6a4a39";
   ctx.fill(terrainPath);
+
+  // Voids
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  for (const hole of state.holes) {
+    ctx.beginPath();
+    ctx.arc(hole.x, hole.y, hole.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 
   ctx.clip(terrainPath);
   const soilGrad = ctx.createLinearGradient(0, state.height * 0.35, 0, state.height);
@@ -1648,9 +1620,9 @@ function drawTrajectory() {
     y += vy * step;
 
     if (x < -100 || x > state.width + 100 || y > state.height + 200) break;
-    if (y >= terrainHeightAt(x)) {
+    if (isSolid(x, y, state.terrain, state.holes, state.width, state.height)) {
       hitX = x;
-      hitY = terrainHeightAt(x);
+      hitY = y;
       break;
     }
 

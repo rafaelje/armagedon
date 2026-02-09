@@ -2,7 +2,7 @@ import { state, pressed } from "./state.ts";
 import { config, weapons } from "./config.ts";
 import { buildTerrain } from "./terrain.ts";
 import { updateProjectiles, fireProjectile } from "./physics.ts";
-import { makeWorm, updateWorm } from "../game.ts";
+import { makeWorm, updateWorm, clamp } from "../game.ts";
 import type { Worm } from "../game.ts";
 import type { LevelData, Point } from "../types.ts";
 import defaultLevel from "../levels/tropical_island.ts";
@@ -24,6 +24,7 @@ function buildTerrainFromLevel(level: LevelData) {
   const w = state.width;
   const h = state.height;
   state.terrain = new Array(Math.floor(w) + 1);
+  state.holes = [];
 
   for (let x = 0; x <= w; x++) {
     const realX = (x / w) * level.worldBounds.width;
@@ -37,6 +38,16 @@ function buildTerrainFromLevel(level: LevelData) {
 
     state.terrain[x] = (y / level.worldBounds.height) * h;
   }
+
+  // Add initial hideouts as holes
+  [...level.platformLeft.hideouts, ...level.platformRight.hideouts].forEach(hideout => {
+    if (hideout.type === "cave" || hideout.type === "overhang") {
+       const cx = (hideout.bounds.x + hideout.bounds.width / 2) / level.worldBounds.width * w;
+       const cy = (hideout.bounds.y + hideout.bounds.height / 2) / level.worldBounds.height * h;
+       const r = (Math.max(hideout.bounds.width, hideout.bounds.height) / 2) / level.worldBounds.width * w;
+       state.holes.push({ x: cx, y: cy, r: r });
+    }
+  });
 }
 
 function createWorms() {
@@ -53,7 +64,7 @@ function createWorms() {
         team: "Rojo",
         color: "#ef476f",
         x: (p.x / lw) * w,
-      }, state.terrain, state.width, state.height));
+      }, state.terrain, state.width, state.height, state.holes));
     });
 
     defaultLevel.platformRight.spawnPoints.forEach((p, index) => {
@@ -63,7 +74,7 @@ function createWorms() {
         team: "Azul",
         color: "#118ab2",
         x: (p.x / lw) * w,
-      }, state.terrain, state.width, state.height));
+      }, state.terrain, state.width, state.height, state.holes));
     });
   } else {
     const left = [state.width * 0.2, state.width * 0.3];
@@ -106,6 +117,7 @@ function resetGame(seedOverride?: number) {
   state.weaponIndex = 0;
   state.turnTimer = state.turnTimerMax;
   state.wind = Math.floor(Math.random() * 11) - 5;
+  state.holes = [];
 
   if (defaultLevel) {
     buildTerrainFromLevel(defaultLevel);
@@ -197,7 +209,7 @@ function step(dt: number) {
   if (state.gameOver) return;
   state.worms.forEach((worm, index) => {
     const isActive = index === state.currentIndex && worm.alive;
-    updateWorm(worm, dt, isActive && state.projectiles.length === 0, pressed, state.terrain, state.width, state.height);
+    updateWorm(worm, dt, isActive && state.projectiles.length === 0, pressed, state.terrain, state.width, state.height, state.holes);
   });
 
   const wasProjectilesEmpty = state.projectiles.length === 0;

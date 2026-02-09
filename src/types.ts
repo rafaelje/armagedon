@@ -71,10 +71,17 @@ export interface LevelData {
   };
 }
 
+export interface Circle {
+  x: number;
+  y: number;
+  r: number;
+}
+
 export interface GameState {
   width: number;
   height: number;
   terrain: number[];
+  holes: Circle[];
   worms: Worm[];
   currentIndex: number;
   weaponIndex: number;
