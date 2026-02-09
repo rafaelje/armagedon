@@ -201,6 +201,21 @@ const visuals: VisualsState = {
   soilPattern: null,
 };
 
+let offscreenCanvas: HTMLCanvasElement | null = null;
+let offscreenCtx: CanvasRenderingContext2D | null = null;
+
+function getOffscreenCanvas(w: number, h: number) {
+  const roundedW = Math.floor(w);
+  const roundedH = Math.floor(h);
+  if (!offscreenCanvas || offscreenCanvas.width !== roundedW || offscreenCanvas.height !== roundedH) {
+    offscreenCanvas = document.createElement("canvas");
+    offscreenCanvas.width = roundedW;
+    offscreenCanvas.height = roundedH;
+    offscreenCtx = offscreenCanvas.getContext("2d");
+  }
+  return { canvas: offscreenCanvas, ctx: offscreenCtx };
+}
+
 const WIND_SCALE = 20;
 
 const aiConfig = {
@@ -1521,39 +1536,61 @@ function drawBackground() {
 }
 
 function drawTerrain() {
+  if (!state.width || !state.height) return;
+
+  const { canvas: tempCanvas, ctx: tCtx } = getOffscreenCanvas(state.width, state.height);
+  if (!tCtx) return;
+
+  tCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+
   const terrainPath = buildTerrainLocalPath();
-  const edgePath = buildTerrainLocalEdgePath();
 
-  ctx.save();
-  ctx.fillStyle = "#6a4a39";
-  ctx.fill(terrainPath);
+  tCtx.save();
+  // 1. Draw solid terrain silhouette
+  tCtx.fillStyle = "#6a4a39";
+  tCtx.fill(terrainPath);
 
-  // Voids
+  // 2. Carve holes using destination-out (only affects terrain in this temp canvas)
+  tCtx.globalCompositeOperation = "destination-out";
+  for (const hole of state.holes) {
+    tCtx.beginPath();
+    tCtx.arc(hole.x, hole.y, hole.r, 0, Math.PI * 2);
+    tCtx.fill();
+  }
+
+  // 3. Draw gradient and pattern only on remaining solid parts
+  tCtx.globalCompositeOperation = "source-atop";
+  const soilGrad = tCtx.createLinearGradient(0, state.height * 0.35, 0, state.height);
+  soilGrad.addColorStop(0, "rgba(120, 86, 66, 0.6)");
+  soilGrad.addColorStop(1, "rgba(60, 35, 25, 0.9)");
+  tCtx.fillStyle = soilGrad;
+  tCtx.fillRect(0, 0, state.width, state.height);
+
+  if (visuals.soilPattern) {
+    tCtx.globalAlpha = 0.55;
+    tCtx.fillStyle = visuals.soilPattern;
+    tCtx.fillRect(0, 0, state.width, state.height);
+  }
+  tCtx.restore();
+
+  // Draw the resulting terrain onto the main canvas (shows background through holes)
+  ctx.drawImage(tempCanvas, 0, 0);
+
+  // 4. Draw dark rims around holes for depth (only where they intersect terrain)
   ctx.save();
-  ctx.globalCompositeOperation = "destination-out";
+  ctx.clip(terrainPath);
+  ctx.strokeStyle = "rgba(40, 20, 10, 0.4)";
+  ctx.lineWidth = 4;
   for (const hole of state.holes) {
     ctx.beginPath();
     ctx.arc(hole.x, hole.y, hole.r, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.stroke();
   }
   ctx.restore();
 
-  ctx.clip(terrainPath);
-  const soilGrad = ctx.createLinearGradient(0, state.height * 0.35, 0, state.height);
-  soilGrad.addColorStop(0, "rgba(120, 86, 66, 0.6)");
-  soilGrad.addColorStop(1, "rgba(60, 35, 25, 0.9)");
-  ctx.fillStyle = soilGrad;
-  ctx.fillRect(0, 0, state.width, state.height);
-
-  if (visuals.soilPattern) {
-    ctx.globalAlpha = 0.55;
-    ctx.fillStyle = visuals.soilPattern;
-    ctx.fillRect(0, 0, state.width, state.height);
-    ctx.globalAlpha = 1;
-  }
-
-  ctx.restore();
-
+  // Now draw the edge path (grass) on the main context
+  const edgePath = buildTerrainLocalEdgePath();
+  ctx.save();
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   ctx.strokeStyle = "#2b7d3d";
@@ -1563,6 +1600,7 @@ function drawTerrain() {
   ctx.strokeStyle = "#5fd17a";
   ctx.lineWidth = 3;
   ctx.stroke(edgePath);
+  ctx.restore();
 }
 
 function buildTerrainLocalPath() {
