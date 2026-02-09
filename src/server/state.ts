@@ -17,6 +17,7 @@ const state: GameState = {
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
   terrain: [],
+  holes: [],
   worms: [],
   currentIndex: 0,
   weaponIndex: 0,
