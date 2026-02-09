@@ -28,8 +28,9 @@ var weapons = [
     maxDamage: 75,
     bounciness: 0.2,
     fuse: 6.6,
-    gravityScale: 0.9,
-    terrainRadius: 100
+    gravityScale: 1.2,
+    terrainRadius: 100,
+    friction: 0.3
   },
   {
     id: "mortar",
@@ -1179,6 +1180,7 @@ function fireProjectile(worm, power, weapon) {
       fuse: weapon.fuse,
       timer: weapon.fuse,
       gravity: config.gravity * weapon.gravityScale,
+      friction: weapon.friction,
       bounces: 0,
       alive: true
     });
@@ -1207,7 +1209,7 @@ function updateProjectiles(dt) {
       if (p.bounciness > 0 && p.bounces < 3 && p.timer > 0.05) {
         p.y = terrainHeightAt(p.x) - 2;
         p.vy = -Math.abs(p.vy) * p.bounciness;
-        p.vx *= 0.8;
+        p.vx *= p.friction ?? 0.8;
         p.bounces += 1;
       } else {
         explode(p.x, p.y, p.explosionRadius, p.maxDamage, p.terrainRadius);

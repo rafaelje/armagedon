@@ -1337,6 +1337,7 @@ function fireProjectile(worm: Worm, power: number, weapon: Weapon) {
       fuse: weapon.fuse,
       timer: weapon.fuse,
       gravity: config.gravity * weapon.gravityScale,
+      friction: weapon.friction,
       bounces: 0,
       alive: true,
     });
@@ -1369,7 +1370,7 @@ function updateProjectiles(dt: number) {
       if (p.bounciness > 0 && p.bounces < 3 && p.timer > 0.05) {
         p.y = terrainHeightAt(p.x) - 2;
         p.vy = -Math.abs(p.vy) * p.bounciness;
-        p.vx *= 0.8;
+        p.vx *= (p.friction ?? 0.8);
         p.bounces += 1;
       } else {
         explode(p.x, p.y, p.explosionRadius, p.maxDamage, p.terrainRadius);

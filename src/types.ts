@@ -27,6 +27,7 @@ export interface Projectile {
   fuse: number;
   timer: number;
   gravity: number;
+  friction?: number;
   bounces: number;
   alive: boolean;
 }
