@@ -21,11 +21,13 @@ export interface Projectile {
   radius: number;
   weaponId: string;
   explosionRadius: number;
+  terrainRadius?: number;
   maxDamage: number;
   bounciness: number;
   fuse: number;
   timer: number;
   gravity: number;
+  friction?: number;
   bounces: number;
   alive: boolean;
 }

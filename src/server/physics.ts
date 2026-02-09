@@ -31,11 +31,13 @@ function fireProjectile(worm: Worm, power: number, weapon: Weapon) {
       radius: weapon.projectileRadius ?? 4,
       weaponId: weapon.id,
       explosionRadius: weapon.explosionRadius,
+      terrainRadius: weapon.terrainRadius,
       maxDamage: weapon.maxDamage,
       bounciness: weapon.bounciness,
       fuse: weapon.fuse,
       timer: weapon.fuse,
       gravity: config.gravity * weapon.gravityScale,
+      friction: weapon.friction,
       bounces: 0,
       alive: true,
     });
@@ -55,7 +57,7 @@ function updateProjectiles(dt: number) {
     if (p.timer > 0) {
       p.timer -= dt;
       if (p.timer <= 0) {
-        explode(p.x, p.y, p.explosionRadius, p.maxDamage);
+        explode(p.x, p.y, p.explosionRadius, p.maxDamage, p.terrainRadius);
         return;
       }
     }
@@ -68,10 +70,10 @@ function updateProjectiles(dt: number) {
       if (p.bounciness > 0 && p.bounces < 3 && p.timer > 0.05) {
         p.y = terrainHeightAt(p.x, state.terrain, state.width, state.height) - 2;
         p.vy = -Math.abs(p.vy) * p.bounciness;
-        p.vx *= 0.8;
+        p.vx *= (p.friction ?? 0.8);
         p.bounces += 1;
       } else {
-        explode(p.x, p.y, p.explosionRadius, p.maxDamage);
+        explode(p.x, p.y, p.explosionRadius, p.maxDamage, p.terrainRadius);
         return;
       }
     }
@@ -82,9 +84,10 @@ function updateProjectiles(dt: number) {
   state.projectiles = next;
 }
 
-function explode(x: number, y: number, radius: number, maxDamage: number) {
-  carveCrater(x, y, radius);
-  broadcast({ type: "crater", x, y, radius });
+function explode(x: number, y: number, radius: number, maxDamage: number, terrainRadius?: number) {
+  const tRadius = terrainRadius ?? radius;
+  carveCrater(x, y, tRadius);
+  broadcast({ type: "crater", x, y, radius: tRadius });
 
   state.worms.forEach((worm) => {
     if (!worm.alive) return;
@@ -101,10 +104,10 @@ function explode(x: number, y: number, radius: number, maxDamage: number) {
       return;
     }
 
-    const knock = 260 * falloff;
+    const knock = config.knockbackImpulse * falloff;
     const angle = Math.atan2(dy, dx);
     worm.vx += Math.cos(angle) * knock;
-    worm.vy += Math.sin(angle) * knock - 200 * falloff;
+    worm.vy += Math.sin(angle) * knock - config.verticalBoost * falloff;
     worm.onGround = false;
   });
 }

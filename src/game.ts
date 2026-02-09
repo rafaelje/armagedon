@@ -8,6 +8,8 @@ export interface GameConfig {
   wormRadius: number;
   chargeRate: number;
   minWormDistance: number;
+  knockbackImpulse: number;
+  verticalBoost: number;
 }
 
 export const config: GameConfig = {
@@ -17,6 +19,8 @@ export const config: GameConfig = {
   wormRadius: 12,
   chargeRate: 0.9,
   minWormDistance: 30,
+  knockbackImpulse: 364, // 260 * 1.4
+  verticalBoost: 280, // 200 * 1.4
 };
 
 export interface Weapon {
@@ -33,6 +37,8 @@ export interface Weapon {
   burst?: number;
   burstSpread?: number;
   burstSpeedJitter?: number;
+  terrainRadius?: number;
+  friction?: number;
 }
 
 export const weapons: Weapon[] = [
@@ -54,9 +60,11 @@ export const weapons: Weapon[] = [
     maxSpeed: 1200,
     explosionRadius: 70,
     maxDamage: 75,
-    bounciness: 0.45,
+    bounciness: 0.2,
     fuse: 6.6,
-    gravityScale: 0.9,
+    gravityScale: 1.2,
+    terrainRadius: 100,
+    friction: 0.3,
   },
   {
     id: "mortar",
