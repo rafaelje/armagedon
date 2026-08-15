@@ -1,6 +1,6 @@
 import { state } from "./state.ts";
 import { config, WIND_SCALE } from "./config.ts";
-import { terrainHeightAt, clamp } from "../game.ts";
+import { terrainHeightAt, clamp, isSolid, getGroundAt } from "../game.ts";
 import type { Worm, Weapon } from "../game.ts";
 import { broadcast } from "./broadcaster.ts";
 
@@ -66,9 +66,9 @@ function updateProjectiles(dt: number) {
       return;
     }
 
-    if (p.y >= terrainHeightAt(p.x, state.terrain, state.width, state.height)) {
+    if (isSolid(p.x, p.y, state.terrain, state.holes, state.width, state.height)) {
       if (p.bounciness > 0 && p.bounces < 3 && p.timer > 0.05) {
-        p.y = terrainHeightAt(p.x, state.terrain, state.width, state.height) - 2;
+        p.y = getGroundAt(p.x, p.y - 10, state.terrain, state.holes, state.width, state.height) - 2;
         p.vy = -Math.abs(p.vy) * p.bounciness;
         p.vx *= (p.friction ?? 0.8);
         p.bounces += 1;
@@ -113,14 +113,17 @@ function explode(x: number, y: number, radius: number, maxDamage: number, terrai
 }
 
 function carveCrater(cx: number, cy: number, radius: number) {
+  state.holes.push({ x: cx, y: cy, r: radius });
   const start = Math.floor(clamp(cx - radius, 0, state.width));
   const end = Math.floor(clamp(cx + radius, 0, state.width));
   for (let x = start; x <= end; x += 1) {
     const dx = x - cx;
     const span = Math.sqrt(Math.max(0, radius * radius - dx * dx));
-    const craterY = cy + span;
-    if (state.terrain[x] < craterY) {
-      state.terrain[x] = craterY;
+    const craterTopY = cy - span;
+    const craterBottomY = cy + span;
+    // If the explosion is at the surface, update the 1D heightmap
+    if (craterTopY <= state.terrain[x] + 4) {
+      state.terrain[x] = Math.max(state.terrain[x], craterBottomY);
     }
   }
 }

@@ -139,16 +139,58 @@ export function terrainHeightAt(x: number, terrain: number[], width: number, hei
   return terrain[xi] ?? height;
 }
 
-import type { Worm } from "./types.ts";
+import type { Worm, Circle } from "./types.ts";
 export type { Worm };
+
+export function isSolid(x: number, y: number, terrain: number[], holes: Circle[], width: number, height: number): boolean {
+  if (x < 0 || x >= width || y < 0 || y >= height) return false;
+  const xi = Math.floor(x);
+  if (y < (terrain[xi] ?? height)) return false;
+
+  if (holes && holes.length > 0) {
+    for (let i = 0; i < holes.length; i++) {
+      const h = holes[i];
+      const dx = x - h.x;
+      const dy = y - h.y;
+      if (dx * dx + dy * dy < h.r * h.r) return false;
+    }
+  }
+  return true;
+}
+
+export function getGroundAt(x: number, y: number, terrain: number[], holes: Circle[], width: number, height: number): number {
+  const xi = Math.floor(clamp(x, 0, width - 1));
+  const surfaceY = terrain[xi] ?? height;
+
+  if (y <= surfaceY) return surfaceY;
+
+  // If we are below the surface, check if there's air between us and the surface
+  let hasAirAbove = false;
+  const startCheckY = Math.min(Math.floor(y), height - 1);
+  for (let cy = startCheckY; cy >= surfaceY; cy--) {
+    if (!isSolid(x, cy, terrain, holes, width, height)) {
+      hasAirAbove = true;
+      break;
+    }
+  }
+
+  if (!hasAirAbove) return surfaceY;
+
+  // If there's air above us, we are in a cave or air gap. Search downwards for ground.
+  for (let cy = Math.floor(y); cy < height; cy++) {
+    if (isSolid(x, cy, terrain, holes, width, height)) return cy;
+  }
+  return height;
+}
 
 export function makeWorm(
   { id, name, team, color, x }: { id: string; name: string; team: string; color: string; x: number },
   terrain: number[],
   width: number,
-  height: number
+  height: number,
+  holes: Circle[] = []
 ): Worm {
-  const y = terrainHeightAt(x, terrain, width, height) - config.wormRadius;
+  const y = getGroundAt(x, 0, terrain, holes, width, height) - config.wormRadius;
   return {
     id,
     name,
@@ -165,14 +207,15 @@ export function makeWorm(
   };
 }
 
-export function updateWorm(
+export function updateWormPhysics(
   worm: Worm,
   dt: number,
   canMove: boolean,
   pressed: Set<string>,
   terrain: number[],
   width: number,
-  height: number
+  height: number,
+  holes: Circle[] = []
 ): void {
   if (!worm.alive) return;
 
@@ -184,8 +227,14 @@ export function updateWorm(
 
     if (left !== right) {
       const dir = left ? -1 : 1;
-      worm.x += dir * config.moveSpeed * dt;
-      worm.x = clamp(worm.x, config.wormRadius, width - config.wormRadius);
+      const nextX = clamp(worm.x + dir * config.moveSpeed * dt, config.wormRadius, width - config.wormRadius);
+      // Simple hill climbing
+      const currentGround = getGroundAt(worm.x, worm.y + config.wormRadius - 2, terrain, holes, width, height);
+      const nextGround = getGroundAt(nextX, worm.y + config.wormRadius - 10, terrain, holes, width, height);
+
+      if (nextGround - currentGround < 15) { // Can climb small slopes
+         worm.x = nextX;
+      }
     }
 
     if (up !== down) {
@@ -202,8 +251,10 @@ export function updateWorm(
     worm.vx *= worm.onGround ? 0.8 : 0.99;
   }
 
-  const ground = terrainHeightAt(worm.x, terrain, width, height) - config.wormRadius;
-  if (worm.y < ground - 1) {
+  const groundY = getGroundAt(worm.x, worm.y + config.wormRadius - 2, terrain, holes, width, height);
+  const footY = worm.y + config.wormRadius;
+
+  if (footY < groundY - 1) {
     worm.onGround = false;
   }
 
@@ -212,9 +263,10 @@ export function updateWorm(
     worm.y += worm.vy * dt;
   }
 
-  const groundY = terrainHeightAt(worm.x, terrain, width, height) - config.wormRadius;
-  if (worm.y >= groundY) {
-    worm.y = groundY;
+  // Re-check ground after movement
+  const finalGroundY = getGroundAt(worm.x, worm.y, terrain, holes, width, height);
+  if (worm.y + config.wormRadius >= finalGroundY) {
+    worm.y = finalGroundY - config.wormRadius;
     worm.vy = 0;
     worm.onGround = true;
   }

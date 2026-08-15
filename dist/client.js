@@ -75,6 +75,241 @@ var weapons = [
     burstSpeedJitter: 0.04
   }
 ];
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function getAimBounds(team) {
+  if (team === "Rojo") {
+    return { min: -15, max: 165 };
+  }
+  if (team === "Azul") {
+    return { min: 15, max: 195 };
+  }
+  return { min: 15, max: 165 };
+}
+function isSolid(x, y, terrain, holes, width, height) {
+  if (x < 0 || x >= width || y < 0 || y >= height)
+    return false;
+  const xi = Math.floor(x);
+  if (y < (terrain[xi] ?? height))
+    return false;
+  if (holes && holes.length > 0) {
+    for (let i = 0; i < holes.length; i++) {
+      const h = holes[i];
+      const dx = x - h.x;
+      const dy = y - h.y;
+      if (dx * dx + dy * dy < h.r * h.r)
+        return false;
+    }
+  }
+  return true;
+}
+function getGroundAt(x, y, terrain, holes, width, height) {
+  const xi = Math.floor(clamp(x, 0, width - 1));
+  const surfaceY = terrain[xi] ?? height;
+  if (y <= surfaceY)
+    return surfaceY;
+  let hasAirAbove = false;
+  const startCheckY = Math.min(Math.floor(y), height - 1);
+  for (let cy = startCheckY; cy >= surfaceY; cy--) {
+    if (!isSolid(x, cy, terrain, holes, width, height)) {
+      hasAirAbove = true;
+      break;
+    }
+  }
+  if (!hasAirAbove)
+    return surfaceY;
+  for (let cy = Math.floor(y); cy < height; cy++) {
+    if (isSolid(x, cy, terrain, holes, width, height))
+      return cy;
+  }
+  return height;
+}
+function updateWormPhysics(worm, dt, canMove, pressed, terrain, width, height, holes = []) {
+  if (!worm.alive)
+    return;
+  if (canMove) {
+    const left = pressed.has("ArrowLeft");
+    const right = pressed.has("ArrowRight");
+    const up = pressed.has("ArrowUp");
+    const down = pressed.has("ArrowDown");
+    if (left !== right) {
+      const dir = left ? -1 : 1;
+      const nextX = clamp(worm.x + dir * config.moveSpeed * dt, config.wormRadius, width - config.wormRadius);
+      const currentGround = getGroundAt(worm.x, worm.y + config.wormRadius - 2, terrain, holes, width, height);
+      const nextGround = getGroundAt(nextX, worm.y + config.wormRadius - 10, terrain, holes, width, height);
+      if (nextGround - currentGround < 15) {
+        worm.x = nextX;
+      }
+    }
+    if (up !== down) {
+      const dir = up ? 1 : -1;
+      worm.angle += dir * config.angleSpeed * dt;
+      const bounds = getAimBounds(worm.team);
+      worm.angle = clamp(worm.angle, bounds.min, bounds.max);
+    }
+  }
+  if (!worm.onGround || Math.abs(worm.vx) > 1) {
+    worm.x += worm.vx * dt;
+    worm.x = clamp(worm.x, config.wormRadius, width - config.wormRadius);
+    worm.vx *= worm.onGround ? 0.8 : 0.99;
+  }
+  const groundY = getGroundAt(worm.x, worm.y + config.wormRadius - 2, terrain, holes, width, height);
+  const footY = worm.y + config.wormRadius;
+  if (footY < groundY - 1) {
+    worm.onGround = false;
+  }
+  if (!worm.onGround) {
+    worm.vy += config.gravity * dt;
+    worm.y += worm.vy * dt;
+  }
+  const finalGroundY = getGroundAt(worm.x, worm.y, terrain, holes, width, height);
+  if (worm.y + config.wormRadius >= finalGroundY) {
+    worm.y = finalGroundY - config.wormRadius;
+    worm.vy = 0;
+    worm.onGround = true;
+  }
+}
+
+// src/levels/tropical_island.ts
+var levelData = {
+  // Metadata
+  name: "Isla del Huevo Errante",
+  theme: "tropical",
+  waterLevel: 580,
+  // posición Y del agua (parte inferior del canvas)
+  // Dimensiones del mundo
+  worldBounds: { width: 2400, height: 600 },
+  // Plataforma Izquierda
+  platformLeft: {
+    // Array de polígonos que definen el terreno sólido (coordenadas x, y)
+    terrain: [
+      { x: 0, y: 600 },
+      { x: 0, y: 420 },
+      { x: 50, y: 400 },
+      { x: 120, y: 350 },
+      { x: 200, y: 360 },
+      { x: 250, y: 420 },
+      // Trench dip
+      { x: 310, y: 420 },
+      // Trench bottom
+      { x: 350, y: 330 },
+      { x: 450, y: 260 },
+      { x: 550, y: 280 },
+      { x: 650, y: 340 },
+      { x: 750, y: 370 },
+      { x: 850, y: 410 },
+      { x: 900, y: 450 },
+      { x: 900, y: 600 }
+    ],
+    // Zonas de escondite dentro de esta plataforma
+    hideouts: [
+      {
+        type: "cave",
+        // "cave" | "overhang" | "trench"
+        bounds: { x: 100, y: 360, width: 70, height: 40 },
+        sealed: false
+        // true = requiere destruir terreno para acceder
+      },
+      {
+        type: "overhang",
+        bounds: { x: 420, y: 270, width: 100, height: 35 },
+        sealed: false
+      },
+      {
+        type: "trench",
+        bounds: { x: 280, y: 310, width: 60, height: 25 },
+        sealed: false
+      },
+      {
+        type: "cave",
+        bounds: { x: 600, y: 350, width: 80, height: 50 },
+        sealed: true
+      }
+    ],
+    // Posiciones de spawn sugeridas para el equipo 1
+    spawnPoints: [
+      { x: 150, y: 340 },
+      { x: 450, y: 250 },
+      { x: 750, y: 360 }
+    ]
+  },
+  // Plataforma Derecha
+  platformRight: {
+    terrain: [
+      { x: 1500, y: 600 },
+      { x: 1500, y: 440 },
+      { x: 1600, y: 390 },
+      { x: 1700, y: 350 },
+      { x: 1800, y: 280 },
+      { x: 1900, y: 380 },
+      // Trench dip
+      { x: 2e3, y: 380 },
+      // Trench bottom
+      { x: 2100, y: 290 },
+      { x: 2250, y: 360 },
+      { x: 2350, y: 390 },
+      { x: 2400, y: 410 },
+      { x: 2400, y: 600 }
+    ],
+    hideouts: [
+      {
+        type: "cave",
+        bounds: { x: 2150, y: 350, width: 70, height: 45 },
+        sealed: false
+      },
+      {
+        type: "overhang",
+        bounds: { x: 1800, y: 280, width: 110, height: 40 },
+        sealed: false
+      },
+      {
+        type: "trench",
+        bounds: { x: 1950, y: 255, width: 65, height: 30 },
+        sealed: false
+      },
+      {
+        type: "cave",
+        bounds: { x: 1650, y: 380, width: 75, height: 50 },
+        sealed: true
+      }
+    ],
+    // Posiciones de spawn para el equipo 2
+    spawnPoints: [
+      { x: 1550, y: 400 },
+      { x: 1950, y: 240 },
+      { x: 2250, y: 350 }
+    ]
+  },
+  // Espacio entre plataformas (gap)
+  gap: {
+    startX: 900,
+    // donde termina la plataforma izquierda
+    endX: 1500,
+    // donde empieza la plataforma derecha
+    // Elementos opcionales dentro del gap
+    floatingDebris: [
+      { x: 1100, y: 480, width: 50, height: 30 },
+      { x: 1300, y: 460, width: 40, height: 40 }
+    ]
+  },
+  // Decoraciones (no colisionables)
+  decorations: [
+    { type: "palm_tree", x: 120, y: 350 },
+    { type: "palm_tree", x: 450, y: 260 },
+    { type: "rock", x: 750, y: 370 },
+    { type: "palm_tree", x: 1800, y: 280 },
+    { type: "palm_tree", x: 2100, y: 290 },
+    { type: "shell", x: 1550, y: 440 }
+  ],
+  // Color/gradiente del fondo según el tema
+  background: {
+    skyColor: "#87CEEB",
+    waterColor: "#1a6b8a",
+    waterSurfaceColor: "#2d9bc4"
+  }
+};
+var tropical_island_default = levelData;
 
 // src/client.ts
 var canvas = null;
@@ -112,6 +347,7 @@ var state = {
   width: 0,
   height: 0,
   terrain: [],
+  holes: [],
   worms: [],
   currentIndex: 0,
   weaponIndex: 0,
@@ -142,6 +378,19 @@ var visuals = {
   bgCanvas: null,
   soilPattern: null
 };
+var offscreenCanvas = null;
+var offscreenCtx = null;
+function getOffscreenCanvas(w, h) {
+  const roundedW = Math.floor(w);
+  const roundedH = Math.floor(h);
+  if (!offscreenCanvas || offscreenCanvas.width !== roundedW || offscreenCanvas.height !== roundedH) {
+    offscreenCanvas = document.createElement("canvas");
+    offscreenCanvas.width = roundedW;
+    offscreenCanvas.height = roundedH;
+    offscreenCtx = offscreenCanvas.getContext("2d");
+  }
+  return { canvas: offscreenCanvas, ctx: offscreenCtx };
+}
 var WIND_SCALE = 20;
 var aiConfig = {
   enabled: true,
@@ -197,20 +446,11 @@ var commentary = {
     "\xA1Curitas para todos!"
   ]
 };
-function clamp(value, min, max) {
+function clamp2(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 function lerp(a, b, t) {
   return a + (b - a) * t;
-}
-function getAimBounds(team) {
-  if (team === "Rojo") {
-    return { min: -15, max: 165 };
-  }
-  if (team === "Azul") {
-    return { min: 15, max: 195 };
-  }
-  return { min: 15, max: 165 };
 }
 function createRng(seed) {
   let t = seed >>> 0;
@@ -347,15 +587,50 @@ function buildSoilPattern() {
   }
   visuals.soilPattern = ctx.createPattern(texture, "repeat");
 }
-function terrainHeightAt(x) {
-  const xi = Math.floor(clamp(x, 0, state.width - 1));
-  return state.terrain[xi] ?? state.height;
+function terrainHeightAt(x, y = 0) {
+  return getGroundAt(x, y, state.terrain, state.holes, state.width, state.height);
+}
+function getYOnPolygon(x, points) {
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    if (x >= Math.min(p1.x, p2.x) && x <= Math.max(p1.x, p2.x)) {
+      if (Math.abs(p2.x - p1.x) < 1e-3)
+        return p1.y;
+      const t = (x - p1.x) / (p2.x - p1.x);
+      return p1.y + t * (p2.y - p1.y);
+    }
+  }
+  return null;
+}
+function buildTerrainFromLevel(level) {
+  const w = state.width;
+  const h = state.height;
+  state.terrain = new Array(Math.floor(w) + 1);
+  state.holes = [];
+  for (let x = 0; x <= w; x++) {
+    const realX = x / w * level.worldBounds.width;
+    let y = level.waterLevel;
+    const leftY = getYOnPolygon(realX, level.platformLeft.terrain);
+    const rightY = getYOnPolygon(realX, level.platformRight.terrain);
+    if (leftY !== null)
+      y = leftY;
+    if (rightY !== null)
+      y = rightY;
+    state.terrain[x] = y / level.worldBounds.height * h;
+  }
 }
 function buildTerrainLocal() {
+  if (tropical_island_default) {
+    buildTerrainFromLevel(tropical_island_default);
+    state.mapName = tropical_island_default.name;
+    return;
+  }
   const w = state.width;
   const h = state.height;
   const rng = createRng(state.seed || 1);
   state.terrain = new Array(Math.floor(w) + 1);
+  state.holes = [];
   const base = seededRand(rng, h * 0.58, h * 0.75);
   const numWaves = Math.floor(seededRand(rng, 2, 6));
   const waves = [];
@@ -398,7 +673,7 @@ function buildTerrainLocal() {
     }
   }
   for (let x = 0; x <= w; x++) {
-    state.terrain[x] = clamp(state.terrain[x], h * 0.4, h * 0.92);
+    state.terrain[x] = clamp2(state.terrain[x], h * 0.4, h * 0.92);
   }
   smoothTerrain(3);
   const numPlatforms = Math.floor(seededRand(rng, 0, 3));
@@ -410,8 +685,8 @@ function buildTerrainLocal() {
   }
   const leftAvg = avgTerrainHeight(Math.floor(w * 0.18), Math.floor(w * 0.32));
   const rightAvg = avgTerrainHeight(Math.floor(w * 0.68), Math.floor(w * 0.84));
-  flattenRange(w * 0.18, w * 0.32, clamp(leftAvg, h * 0.43, h * 0.78));
-  flattenRange(w * 0.68, w * 0.84, clamp(rightAvg, h * 0.43, h * 0.78));
+  flattenRange(w * 0.18, w * 0.32, clamp2(leftAvg, h * 0.43, h * 0.78));
+  flattenRange(w * 0.68, w * 0.84, clamp2(rightAvg, h * 0.43, h * 0.78));
   state.mapName = generateMapNameLocal(rng);
 }
 function smoothTerrain(passes) {
@@ -469,39 +744,64 @@ function avgTerrainHeight(x0, x1) {
   return count > 0 ? sum / count : state.height * 0.6;
 }
 function flattenRange(x0, x1, y) {
-  const start = Math.floor(clamp(x0, 0, state.width));
-  const end = Math.floor(clamp(x1, 0, state.width));
+  const start = Math.floor(clamp2(x0, 0, state.width));
+  const end = Math.floor(clamp2(x1, 0, state.width));
   for (let x = start; x <= end; x += 1) {
     state.terrain[x] = y;
   }
 }
 function createWormsLocal() {
-  const left = [state.width * 0.2, state.width * 0.3];
-  const right = [state.width * 0.7, state.width * 0.82];
   const worms = [];
-  left.forEach((x, index) => {
-    worms.push(makeWormLocal({
-      id: `R${index + 1}`,
-      name: `Rojo ${index + 1}`,
-      team: "Rojo",
-      color: "#ef476f",
-      x
-    }));
-  });
-  right.forEach((x, index) => {
-    worms.push(makeWormLocal({
-      id: `A${index + 1}`,
-      name: `Azul ${index + 1}`,
-      team: "Azul",
-      color: "#118ab2",
-      x
-    }));
-  });
+  if (tropical_island_default) {
+    const w = state.width;
+    const h = state.height;
+    const lw = tropical_island_default.worldBounds.width;
+    const lh = tropical_island_default.worldBounds.height;
+    tropical_island_default.platformLeft.spawnPoints.forEach((p, index) => {
+      worms.push(makeWormLocal({
+        id: `R${index + 1}`,
+        name: `Rojo ${index + 1}`,
+        team: "Rojo",
+        color: "#ef476f",
+        x: p.x / lw * w
+      }));
+    });
+    tropical_island_default.platformRight.spawnPoints.forEach((p, index) => {
+      worms.push(makeWormLocal({
+        id: `A${index + 1}`,
+        name: `Azul ${index + 1}`,
+        team: "Azul",
+        color: "#118ab2",
+        x: p.x / lw * w
+      }));
+    });
+  } else {
+    const left = [state.width * 0.2, state.width * 0.3];
+    const right = [state.width * 0.7, state.width * 0.82];
+    left.forEach((x, index) => {
+      worms.push(makeWormLocal({
+        id: `R${index + 1}`,
+        name: `Rojo ${index + 1}`,
+        team: "Rojo",
+        color: "#ef476f",
+        x
+      }));
+    });
+    right.forEach((x, index) => {
+      worms.push(makeWormLocal({
+        id: `A${index + 1}`,
+        name: `Azul ${index + 1}`,
+        team: "Azul",
+        color: "#118ab2",
+        x
+      }));
+    });
+  }
   state.worms = worms;
   state.currentIndex = 0;
 }
 function makeWormLocal({ id, name, team, color, x }) {
-  const y = terrainHeightAt(x) - config.wormRadius;
+  const y = terrainHeightAt(x, 0) - config.wormRadius;
   return {
     id,
     name,
@@ -612,7 +912,7 @@ function updateHealthPacks(dt) {
       pack.y += pack.fallSpeed * dt;
       pack.x += Math.sin(pack.age * 2.5 + pack.swayPhase) * 15 * dt;
       pack.x += getEffectiveWind() * 12 * dt;
-      pack.x = clamp(pack.x, 5, state.width - 5);
+      pack.x = clamp2(pack.x, 5, state.width - 5);
       const groundY = terrainHeightAt(pack.x);
       if (pack.y >= groundY - 12) {
         pack.y = groundY - 12;
@@ -815,6 +1115,9 @@ function applySnapshotToState(snapshot) {
   if (snapshot.terrain) {
     state.terrain = snapshot.terrain;
   }
+  if (snapshot.holes) {
+    state.holes = snapshot.holes;
+  }
   if (snapshot.worms) {
     state.worms = snapshot.worms.map((worm) => ({ ...worm }));
   }
@@ -839,7 +1142,7 @@ function applyInterpolatedState() {
     return;
   const prev = net.prevState || net.currState;
   const now = performance.now();
-  const alpha = clamp((now - net.lastReceived) / (net.intervalMs || 33), 0, 1);
+  const alpha = clamp2((now - net.lastReceived) / (net.intervalMs || 33), 0, 1);
   if (net.currState.worms) {
     state.worms = net.currState.worms.map((worm, index) => {
       const prevWorm = prev.worms?.[index] || worm;
@@ -924,14 +1227,14 @@ function planAIMove(worm) {
     candidates.push(usableMin + step2 * i);
   }
   for (const offset of [-40, -80, 40, 80]) {
-    candidates.push(clamp(worm.x + offset, usableMin, usableMax));
+    candidates.push(clamp2(worm.x + offset, usableMin, usableMax));
   }
   let bestX = worm.x;
   let bestScore = Infinity;
   for (const cx of candidates) {
     if (wouldCollideWithWorm(worm, cx))
       continue;
-    const cy = terrainHeightAt(cx) - config.wormRadius;
+    const cy = terrainHeightAt(cx, 0) - config.wormRadius;
     const shotScore = evaluateShotFromPosition(cx, cy, targets);
     const heightBonus = cy / state.height * 5;
     const total = shotScore + heightBonus;
@@ -972,7 +1275,7 @@ function updateAI(dt) {
     if (Math.abs(diff) > 5 && state.aiPlan.moveTime < aiConfig.moveTimeMax) {
       const dir = diff > 0 ? 1 : -1;
       const aiBounds = getMoveBounds(worm.team);
-      const newX = clamp(worm.x + dir * config.moveSpeed * dt, aiBounds.min, aiBounds.max);
+      const newX = clamp2(worm.x + dir * config.moveSpeed * dt, aiBounds.min, aiBounds.max);
       if (!wouldCollideWithWorm(worm, newX)) {
         worm.x = newX;
       } else {
@@ -1057,7 +1360,7 @@ function simulateShot(startX, startY, angle, power, weapon, targets) {
       if (dist < minDist)
         minDist = dist;
     }
-    const hitTerrain = y >= terrainHeightAt(x);
+    const hitTerrain = isSolid(x, y, state.terrain, state.holes, state.width, state.height);
     const hitDirect = minDist <= config.wormRadius + 6;
     if (hitTerrain || hitDirect)
       break;
@@ -1111,47 +1414,7 @@ function wouldCollideWithWorm(worm, newX) {
   return false;
 }
 function updateWormClient(worm, dt, isActive) {
-  if (!worm.alive)
-    return;
-  if (isActive && state.projectiles.length === 0) {
-    const left = keys.has("ArrowLeft");
-    const right = keys.has("ArrowRight");
-    const up = keys.has("ArrowUp");
-    const down = keys.has("ArrowDown");
-    if (left !== right) {
-      const dir = left ? -1 : 1;
-      const bounds = getMoveBounds(worm.team);
-      const newX = clamp(worm.x + dir * config.moveSpeed * dt, bounds.min, bounds.max);
-      if (!wouldCollideWithWorm(worm, newX)) {
-        worm.x = newX;
-      }
-    }
-    if (up !== down) {
-      const dir = up ? 1 : -1;
-      worm.angle += dir * config.angleSpeed * dt;
-      const bounds = getAimBounds(worm.team);
-      worm.angle = clamp(worm.angle, bounds.min, bounds.max);
-    }
-  }
-  if (!worm.onGround || Math.abs(worm.vx) > 1) {
-    worm.x += worm.vx * dt;
-    worm.x = clamp(worm.x, config.wormRadius, state.width - config.wormRadius);
-    worm.vx *= worm.onGround ? 0.8 : 0.99;
-  }
-  const ground = terrainHeightAt(worm.x) - config.wormRadius;
-  if (worm.y < ground - 1) {
-    worm.onGround = false;
-  }
-  if (!worm.onGround) {
-    worm.vy += config.gravity * dt;
-    worm.y += worm.vy * dt;
-  }
-  const groundY = terrainHeightAt(worm.x) - config.wormRadius;
-  if (worm.y >= groundY) {
-    worm.y = groundY;
-    worm.vy = 0;
-    worm.onGround = true;
-  }
+  updateWormPhysics(worm, dt, isActive, keys, state.terrain, state.width, state.height, state.holes);
 }
 function addProjectile(params) {
   state.projectiles.push(params);
@@ -1209,9 +1472,9 @@ function updateProjectiles(dt) {
     if (p.x < -200 || p.x > state.width + 200 || p.y > state.height + 200) {
       return;
     }
-    if (p.y >= terrainHeightAt(p.x)) {
+    if (isSolid(p.x, p.y, state.terrain, state.holes, state.width, state.height)) {
       if (p.bounciness > 0 && p.bounces < 3 && p.timer > 0.05) {
-        p.y = terrainHeightAt(p.x) - 2;
+        p.y = terrainHeightAt(p.x, p.y - 10) - 2;
         p.vy = -Math.abs(p.vy) * p.bounciness;
         p.vx *= p.friction ?? 0.8;
         p.bounces += 1;
@@ -1265,14 +1528,16 @@ function explode(x, y, radius, maxDamage, terrainRadius) {
   }
 }
 function carveCrater(cx, cy, radius) {
-  const start = Math.floor(clamp(cx - radius, 0, state.width));
-  const end = Math.floor(clamp(cx + radius, 0, state.width));
+  state.holes.push({ x: cx, y: cy, r: radius });
+  const start = Math.floor(clamp2(cx - radius, 0, state.width));
+  const end = Math.floor(clamp2(cx + radius, 0, state.width));
   for (let x = start; x <= end; x += 1) {
     const dx = x - cx;
     const span = Math.sqrt(Math.max(0, radius * radius - dx * dx));
-    const craterY = cy + span;
-    if (state.terrain[x] < craterY) {
-      state.terrain[x] = craterY;
+    const topY = cy - span;
+    const bottomY = cy + span;
+    if (topY <= state.terrain[x] + 4) {
+      state.terrain[x] = Math.max(state.terrain[x], bottomY);
     }
   }
 }
@@ -1327,24 +1592,47 @@ function drawBackground() {
   }
 }
 function drawTerrain() {
+  if (!state.width || !state.height)
+    return;
+  const { canvas: tempCanvas, ctx: tCtx } = getOffscreenCanvas(state.width, state.height);
+  if (!tCtx)
+    return;
+  tCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
   const terrainPath = buildTerrainLocalPath();
-  const edgePath = buildTerrainLocalEdgePath();
-  ctx.save();
-  ctx.fillStyle = "#6a4a39";
-  ctx.fill(terrainPath);
-  ctx.clip(terrainPath);
-  const soilGrad = ctx.createLinearGradient(0, state.height * 0.35, 0, state.height);
+  tCtx.save();
+  tCtx.fillStyle = "#6a4a39";
+  tCtx.fill(terrainPath);
+  tCtx.globalCompositeOperation = "destination-out";
+  for (const hole of state.holes) {
+    tCtx.beginPath();
+    tCtx.arc(hole.x, hole.y, hole.r, 0, Math.PI * 2);
+    tCtx.fill();
+  }
+  tCtx.globalCompositeOperation = "source-atop";
+  const soilGrad = tCtx.createLinearGradient(0, state.height * 0.35, 0, state.height);
   soilGrad.addColorStop(0, "rgba(120, 86, 66, 0.6)");
   soilGrad.addColorStop(1, "rgba(60, 35, 25, 0.9)");
-  ctx.fillStyle = soilGrad;
-  ctx.fillRect(0, 0, state.width, state.height);
+  tCtx.fillStyle = soilGrad;
+  tCtx.fillRect(0, 0, state.width, state.height);
   if (visuals.soilPattern) {
-    ctx.globalAlpha = 0.55;
-    ctx.fillStyle = visuals.soilPattern;
-    ctx.fillRect(0, 0, state.width, state.height);
-    ctx.globalAlpha = 1;
+    tCtx.globalAlpha = 0.55;
+    tCtx.fillStyle = visuals.soilPattern;
+    tCtx.fillRect(0, 0, state.width, state.height);
+  }
+  tCtx.restore();
+  ctx.drawImage(tempCanvas, 0, 0);
+  ctx.save();
+  ctx.clip(terrainPath);
+  ctx.strokeStyle = "rgba(40, 20, 10, 0.4)";
+  ctx.lineWidth = 4;
+  for (const hole of state.holes) {
+    ctx.beginPath();
+    ctx.arc(hole.x, hole.y, hole.r, 0, Math.PI * 2);
+    ctx.stroke();
   }
   ctx.restore();
+  const edgePath = buildTerrainLocalEdgePath();
+  ctx.save();
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   ctx.strokeStyle = "#2b7d3d";
@@ -1353,6 +1641,7 @@ function drawTerrain() {
   ctx.strokeStyle = "#5fd17a";
   ctx.lineWidth = 3;
   ctx.stroke(edgePath);
+  ctx.restore();
 }
 function buildTerrainLocalPath() {
   const path = new Path2D();
@@ -1382,7 +1671,7 @@ function drawTrajectory() {
   if (!worm || !worm.alive)
     return;
   const weapon = getCurrentWeapon();
-  const power = clamp(state.charge, 0, 1);
+  const power = clamp2(state.charge, 0, 1);
   const rad = worm.angle * Math.PI / 180;
   const speed = weapon.minSpeed + (weapon.maxSpeed - weapon.minSpeed) * power;
   const muzzle = config.wormRadius + 6;
@@ -1406,9 +1695,9 @@ function drawTrajectory() {
     y += vy * step2;
     if (x < -100 || x > state.width + 100 || y > state.height + 200)
       break;
-    if (y >= terrainHeightAt(x)) {
+    if (isSolid(x, y, state.terrain, state.holes, state.width, state.height)) {
       hitX = x;
-      hitY = terrainHeightAt(x);
+      hitY = y;
       break;
     }
     ctx.beginPath();
@@ -1830,7 +2119,7 @@ function drawPowerBar(worm, isCurrent) {
   ctx.lineWidth = 1;
   ctx.strokeRect(x, y, barWidth, barHeight);
   if (power > 0) {
-    const fillWidth = barWidth * clamp(power, 0, 1);
+    const fillWidth = barWidth * clamp2(power, 0, 1);
     const grad = ctx.createLinearGradient(x, y, x + barWidth, y);
     grad.addColorStop(0, "#06d6a0");
     grad.addColorStop(0.6, "#ffd166");
@@ -1866,7 +2155,7 @@ function drawExplosions() {
   if (state.explosions.length === 0)
     return;
   state.explosions.forEach((boom) => {
-    const t = clamp(boom.life / boom.duration, 0, 1);
+    const t = clamp2(boom.life / boom.duration, 0, 1);
     const ringRadius = boom.radius * (0.6 + t * 0.8);
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
@@ -1881,7 +2170,7 @@ function drawExplosions() {
     ctx.stroke();
     ctx.restore();
     boom.particles.forEach((p) => {
-      const alpha = clamp(1 - p.age / p.life, 0, 1);
+      const alpha = clamp2(1 - p.age / p.life, 0, 1);
       ctx.fillStyle = `rgba(255, 125, 70, ${alpha})`;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
@@ -2296,7 +2585,7 @@ function drawStatusBar() {
   ctx.lineWidth = 1;
   ctx.strokeRect(pbX, pbY, pbW, pbH);
   if (state.charge > 0) {
-    const fillW = pbW * clamp(state.charge, 0, 1);
+    const fillW = pbW * clamp2(state.charge, 0, 1);
     const grad = ctx.createLinearGradient(pbX, pbY, pbX + pbW, pbY);
     grad.addColorStop(0, "#06d6a0");
     grad.addColorStop(0.6, "#ffd166");
@@ -2764,6 +3053,38 @@ function drawTouchControls() {
   }
   ctx.restore();
 }
+function drawDecorations() {
+  if (!tropical_island_default)
+    return;
+  const w = state.width;
+  const h = state.height;
+  const lw = tropical_island_default.worldBounds.width;
+  const lh = tropical_island_default.worldBounds.height;
+  ctx.save();
+  for (const deco of tropical_island_default.decorations) {
+    const dx = deco.x / lw * w;
+    const dy = terrainHeightAt(dx);
+    if (deco.type === "palm_tree") {
+      ctx.fillStyle = "#8B4513";
+      ctx.fillRect(dx - 2, dy - 30, 4, 30);
+      ctx.fillStyle = "#228B22";
+      ctx.beginPath();
+      ctx.arc(dx, dy - 30, 15, 0, Math.PI, true);
+      ctx.fill();
+    } else if (deco.type === "rock") {
+      ctx.fillStyle = "#808080";
+      ctx.beginPath();
+      ctx.arc(dx, dy - 5, 10, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (deco.type === "shell") {
+      ctx.fillStyle = "#FFF5EE";
+      ctx.beginPath();
+      ctx.ellipse(dx, dy - 2, 5, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
 function drawHud() {
   drawTeamBanners();
   drawTurnTimer();
@@ -2789,6 +3110,7 @@ function render() {
   drawClouds();
   drawWindGusts();
   drawTerrain();
+  drawDecorations();
   drawTrajectory();
   state.worms.forEach((worm, index) => drawWorm(worm, index === state.currentIndex));
   drawProjectiles();
